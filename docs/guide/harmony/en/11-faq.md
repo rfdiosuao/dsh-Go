@@ -13,9 +13,9 @@ Reset and uninstall both delete data on this phone; you rarely need them to fix 
 <!-- nav: commonSettings,phoneEngineDiagnostics -->
 `Settings › Diagnostics` · [Open](dshgo://open/diagnostics)
 
-To report a problem, export a diagnostics bundle here. It includes the version, device, logs and the latest crash, never keys or tokens.
+To report a problem, export a diagnostics bundle here. It includes the version, device, bounded engine logs and captured errors, not all system logs or a complete crash history. The app attempts to remove keys and tokens; still inspect the bundle before sharing it.
 
-To let the AI look into it: tap **Let the AI read diagnostics**. The app writes the same (redacted) snapshot into the engine, then ask the AI to "check the diagnostics" — the bundled `dsh-go-support` skill walks the symptoms and drafts an issue you can paste.
+To let the AI look into it, tap **Let the AI read diagnostics**. The app writes a bounded snapshot for the local engine, then ask the AI to "check the diagnostics". The bundled `dsh-go-support` skill walks the symptoms and drafts an issue you can paste.
 
 ## The engine stops in the background, or notifications don't arrive
 
@@ -38,6 +38,16 @@ After several unclean exits in a row the engine won't start by itself and waits 
 
 If the engine has already started since the app opened, restoring and entering or leaving Safe mode reopen the app; the dialog says so. The failure card also links to the logs and a diagnostics bundle. Reset and uninstall both delete data on this phone; you rarely need them to fix a problem.
 
+## The app can chat, but headless reports MISSING_CREDENTIAL
+
+`dsh --profile headless` starts a separate one-shot task. Its default profile disables the interactive credential store, authorization and DeepSeek account services, so it does not automatically use API keys or account sign-ins saved in the app. A working chat in the app does not mean this command has credentials configured.
+
+The default DeepSeek official API route needs `DEEPSEEK_API_KEY`. Supply it in the process environment that launches the command, or set your own API key as `DEEPSEEK_API_KEY=...` in the launch directory's `.env` or `$DSH_HOME/.env`. These are read in order: process environment, launch directory's `.env`, then `$DSH_HOME/.env`. An exported empty variable also shadows the `.env` fallback; unset that empty variable before using a file instead. Keep real keys out of chats, issue reports and source control.
+
+DeepSeek account sign-in and an official API key are different credentials. An account sign-in token cannot be used as `DEEPSEEK_API_KEY`. You can keep using the account in the app, or configure an API key separately for headless.
+
+Adding the app's sign-in patch alone does not enable the services that headless disables by default. Custom profiles and remote hosts may use different configurations; follow the configuration of that host.
+
 ## System actions don't work
 
 The top of the system actions page says where things stand:
@@ -49,6 +59,22 @@ The top of the system actions page says where things stand:
 - **You're connected to a remote host**: switch to **This phone**.
 
 If the AI says it isn't supported: seeing the screen, tapping inside other apps, reading the clipboard, finding apps by name and SMS can't be done. Alarms and timers need a version with system reminders. See [System actions](04-phone-control.md).
+
+## The AI says gh, python3 or pip isn't available
+
+<!-- nav: commonSettings,linuxTitle -->
+`Settings › Linux environment`
+
+On this phone's HarmonyOS engine these commands need the Linux environment; see [Engine and remote hosts](03-engine-hosts.md#linux-environment). Check the status on that page:
+
+- **Off**: turn on **Turn on Linux**. The first time, wait until it's ready, then ask the AI to try again; while it's getting ready those commands still fail rather than wait for it.
+- The page says the local engine isn't running: start the local engine first.
+- The page asks you to quit and reopen the app: do that, then turn it on.
+- **Failed**, or it couldn't turn on with a code: include that code and a diagnostics bundle when you report the problem.
+- The AI says Linux is busy: Linux runs one command at a time, and a plugin's long-running Python service holds it the whole time, so other commands report busy after a short wait. Turn that plugin off or try later.
+- Downloads are slow or can't connect: set a proxy under **Network proxy** on the same page.
+
+On a remote host these commands run on that host, whatever this switch says.
 
 ## The pet is gone
 
