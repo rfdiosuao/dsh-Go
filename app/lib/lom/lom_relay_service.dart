@@ -20,10 +20,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../remote/network_watch.dart';
+import '../state/connection_state.dart' show localConnectionProvider;
 import 'credentials.dart';
+import 'dsh_engine.dart';
+import 'identity.dart';
 import 'lom_providers.dart';
 import 'pairing_api.dart';
 import 'relay_client.dart';
+import 'rpc_dispatcher.dart';
+import 'rpc_store.dart';
 
 class LomRelayState {
   const LomRelayState({
@@ -124,7 +129,10 @@ class LomRelayController extends Notifier<LomRelayState> {
       state = const LomRelayState();
       return;
     }
-    _start(creds);
+    final identity =
+        await ref.read(lomIdentityStoreProvider).loadOrCreate();
+    if (!ref.mounted) return;
+    await _start(creds, identity);
   }
 
   /// Re-reads credentials (e.g. after pairing finished) and starts or
@@ -141,17 +149,48 @@ class LomRelayController extends Notifier<LomRelayState> {
       state = state.copyWith(credentials: creds);
       return;
     }
-    _start(creds);
+    final identity =
+        await ref.read(lomIdentityStoreProvider).loadOrCreate();
+    if (!ref.mounted) return;
+    await _start(creds, identity);
   }
 
-  void _start(LomCredentials creds) {
+  Future<void> _start(LomCredentials creds, LomIdentity identity) async {
     final transport = ref.read(lomHttpTransportProvider);
     final api = LomPairingApi(baseUrl: 'https://${creds.host}', transport: transport);
-    final client = LomRelayClient(
+    // Phase 2/3: the dispatcher owns envelope opening, replay protection
+    // and the required RPC methods, backed by the local DSH engine.
+    final secrets = ref.read(lomSecretStoreProvider);
+    final dispatcher = LomRpcDispatcher(
+      identity: identity,
+      trustedSenders: () => creds.desktopKeys,
+      replay: LomReplayStore(secrets),
+      modelConfigs: LomModelConfigStore(secrets),
+      receipts: LomChatReceiptStore(secrets),
+      engine: DshLomEngine(
+        resolveClient: () async {
+          final connection = await ref.read(localConnectionProvider.future);
+          return connection?.client;
+        },
+      ),
+    );
+    // A restart must never re-run an accepted-but-unfinished task: mark
+    // it `interrupted` instead. A failure here must not block going online.
+    try {
+      await dispatcher.recoverInterrupted();
+    } catch (_) {
+      // The relay still starts; `chat.read` derives status from history.
+    }
+    late final LomRelayClient client;
+    client = LomRelayClient(
       credentials: creds,
       api: api,
       webSocketFactory: ref.read(lomWebSocketFactoryProvider),
       credentialStore: ref.read(lomCredentialStoreProvider),
+      onTaskRpc: (envelope) async {
+        final reply = await dispatcher.handleEnvelope(envelope);
+        if (reply != null) await client.sendReply(reply);
+      },
       onStateChange: (connection, nextAttemptIn) {
         if (!ref.mounted) return;
         if (connection == LomConnectionState.revoked) {
@@ -173,8 +212,6 @@ class LomRelayController extends Notifier<LomRelayState> {
       onServerTime: (t) {
         if (ref.mounted) state = state.copyWith(serverTime: t);
       },
-      // Phase 2 will handle task.rpc envelopes here. Phase 1 leaves it
-      // unset: the relay ignores them and sends no reply.
     );
     _client = client;
     state = state.copyWith(credentials: creds, revoked: false);
