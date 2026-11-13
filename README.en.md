@@ -354,7 +354,7 @@ Code derived from Phase is used with the author's permission. DeepSeek Harness, 
 
 The DSH Go name, logo and mascots (Deepy and Whale girl) are not covered by the AGPL; see [ASSETS.md](ASSETS.md) for their terms.
 
-<sub>Remote connections draw on the [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) project and its server. Thanks to its author, liguobao.</sub>
+<sub>Remote connections follow the [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) (MIT) protocol; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for sources and terms.</sub>
 
 <br>
 
