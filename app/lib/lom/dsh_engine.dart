@@ -17,6 +17,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dsh_client/dsh_client.dart';
 
 import '../state/time_zones.dart' show detectAndroidTimeZone;
@@ -219,6 +220,35 @@ class DshLomEngine implements LomEngine {
       _guard((client) async {
         await client.cancel(sessionId);
       });
+
+  @override
+  Future<String> renameSession(String sessionId, String title) =>
+      _guard((client) async => client.renameSession(sessionId, title));
+
+  @override
+  Future<void> deleteSession(String sessionId) =>
+      _guard((client) async {
+        // Never fall back to archive: a host without the deletion route
+        // must report the failure, not silently archive instead.
+        if (!await client.supportsSessionDeletion()) {
+          throw LomEngineException('remote.operation_failed');
+        }
+        await client.deleteSessionPermanently(sessionId);
+      });
+
+  @override
+  Future<String> deviceNetwork() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      if (results.contains(ConnectivityResult.wifi)) return 'wifi';
+      if (results.contains(ConnectivityResult.ethernet)) return 'ethernet';
+      if (results.contains(ConnectivityResult.mobile)) return 'cellular';
+      if (results.contains(ConnectivityResult.none)) return 'offline';
+      return 'unknown';
+    } catch (_) {
+      return 'unknown';
+    }
+  }
 
   @override
   Future<List<LomSchedule>> scheduleCatalog() =>

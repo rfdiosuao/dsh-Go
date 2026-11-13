@@ -25,7 +25,9 @@ import 'credentials.dart';
 import 'dsh_engine.dart';
 import 'identity.dart';
 import 'lom_providers.dart';
+import 'optional_methods.dart';
 import 'pairing_api.dart';
+import 'phase4_store.dart';
 import 'relay_client.dart';
 import 'rpc_dispatcher.dart';
 import 'rpc_store.dart';
@@ -160,18 +162,25 @@ class LomRelayController extends Notifier<LomRelayState> {
     final api = LomPairingApi(baseUrl: 'https://${creds.host}', transport: transport);
     // Phase 2/3: the dispatcher owns envelope opening, replay protection
     // and the required RPC methods, backed by the local DSH engine.
+    // Phase 4: the optional handlers add chat management + device info.
     final secrets = ref.read(lomSecretStoreProvider);
+    final engine = DshLomEngine(
+      resolveClient: () async {
+        final connection = await ref.read(localConnectionProvider.future);
+        return connection?.client;
+      },
+    );
     final dispatcher = LomRpcDispatcher(
       identity: identity,
       trustedSenders: () => creds.desktopKeys,
       replay: LomReplayStore(secrets),
       modelConfigs: LomModelConfigStore(secrets),
       receipts: LomChatReceiptStore(secrets),
-      engine: DshLomEngine(
-        resolveClient: () async {
-          final connection = await ref.read(localConnectionProvider.future);
-          return connection?.client;
-        },
+      engine: engine,
+      optional: LomOptionalMethods(
+        engine: engine,
+        pins: LomPinStore(secrets),
+        deviceNames: LomDeviceNameStore(secrets),
       ),
     );
     // A restart must never re-run an accepted-but-unfinished task: mark

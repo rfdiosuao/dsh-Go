@@ -19,46 +19,9 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'credentials.dart';
-
-/// One JSON object document in a [LomSecretStore], with serialized writes.
-class _JsonDoc {
-  _JsonDoc(this._store, this._key);
-
-  final LomSecretStore _store;
-  final String _key;
-  Future<void> _tail = Future.value();
-
-  Future<Map<String, Object?>> _load() async {
-    final raw = await _store.read(_key);
-    if (raw == null || raw.isEmpty) return {};
-    final decoded = jsonDecode(raw);
-    if (decoded is Map<String, dynamic>) {
-      return Map<String, Object?>.from(decoded);
-    }
-    return {};
-  }
-
-  /// Runs [update] against the freshly loaded document, then persists it.
-  /// Calls are serialized: a later [mutate] only starts after the earlier
-  /// one's load–update–save has finished.
-  Future<T> mutate<T>(
-    FutureOr<T> Function(Map<String, Object?> doc) update,
-  ) {
-    final run = _tail.then((_) async {
-      final doc = await _load();
-      final result = await update(doc);
-      await _store.write(_key, jsonEncode(doc));
-      return result;
-    });
-    _tail = run.then((_) {}, onError: (_) {});
-    return run;
-  }
-
-  Future<Map<String, Object?>> load() => _tail.then((_) => _load());
-}
+import 'json_doc.dart';
 
 /// Envelope replay protection (doc §06 §6): dedup key `sender:id`,
 /// retained at least 10 minutes, persisted, concurrency-safe.
@@ -73,7 +36,7 @@ class LomReplayStore {
   /// How long a dedup key is kept (10 minutes: 5-minute window each way).
   static const retention = Duration(minutes: 10);
 
-  late final _doc = _JsonDoc(_store, _key);
+  late final _doc = LomJsonDoc(_store, _key);
 
   /// Claims [dedupKey]. Returns `true` when newly claimed, `false` when
   /// the key was already claimed and has not expired.
@@ -143,7 +106,7 @@ class LomModelConfigStore {
   final LomSecretStore _store;
   static const _key = 'lom.model_configs';
 
-  late final _doc = _JsonDoc(_store, _key);
+  late final _doc = LomJsonDoc(_store, _key);
 
   Future<LomModelConfig?> loadFor(String desktopKey) async {
     final doc = await _doc.load();
@@ -244,8 +207,8 @@ class LomChatReceiptStore {
   static const _receiptsKey = 'lom.chat_receipts';
   static const _sessionsKey = 'lom.chat_sessions';
 
-  late final _receipts = _JsonDoc(_store, _receiptsKey);
-  late final _sessions = _JsonDoc(_store, _sessionsKey);
+  late final _receipts = LomJsonDoc(_store, _receiptsKey);
+  late final _sessions = LomJsonDoc(_store, _sessionsKey);
 
   Future<LomChatReceipt?> receiptFor(String clientId) async {
     final doc = await _receipts.load();

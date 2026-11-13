@@ -246,6 +246,22 @@ abstract class LomEngine {
   /// Interrupts the running turn. Answers even when idle.
   Future<void> cancelSession(String sessionId);
 
+  /// Renames a session (`session/rename`); returns the title the engine
+  /// confirmed. Throws [LomEngineException] with `chat.session_missing`
+  /// when the session does not exist.
+  Future<String> renameSession(String sessionId, String title);
+
+  /// Permanently deletes a session. Throws [LomEngineException] with
+  /// `remote.operation_failed` when this host cannot delete sessions
+  /// (the bridge route is absent) or the outcome is unknown — the caller
+  /// must never treat that as "deleted".
+  Future<void> deleteSession(String sessionId);
+
+  /// The current network transport, one of `wifi` / `cellular` /
+  /// `ethernet` / `offline` / `unknown` (doc §07 `device.status`). Never
+  /// throws: anything unknowable answers `unknown`.
+  Future<String> deviceNetwork();
+
   /// The engine's schedule catalog (read-only).
   Future<List<LomSchedule>> scheduleCatalog();
 
