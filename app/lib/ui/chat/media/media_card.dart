@@ -27,7 +27,6 @@ import 'package:share_plus/share_plus.dart';
 import '../../../l10n/l10n.dart';
 import '../../../media/gallery.dart';
 import '../../../media/video.dart';
-import '../../../state/android_features.dart' show operatingSystemProvider;
 import '../../../state/artifact_files.dart';
 import '../../../state/artifacts.dart';
 import '../../../state/features_state.dart' show jobsProvider;
@@ -852,9 +851,7 @@ Future<void> saveMediaItems(BuildContext context, WidgetRef ref, String sessionI
   }
   final media = ref.read(mediaChannelProvider);
   final files = ref.read(artifactFilesProvider);
-  final ohos = ref.read(operatingSystemProvider) == 'ohos';
   var saved = 0;
-  var chosen = false;
   var backedOut = false;
   String? failure;
   for (final item in pictures) {
@@ -873,17 +870,6 @@ Future<void> saveMediaItems(BuildContext context, WidgetRef ref, String sessionI
   for (final item in videos) {
     if (backedOut) break;
     try {
-      if (ohos) {
-        // HarmonyOS has no gallery write for videos: the system's save window
-        // places each one (or the Downloads copy, where it can't ask).
-        final where = await files.saveToDownloads(
-          sessionId,
-          Artifact(path: item.path, origin: ArtifactOrigin.linked, turn: 0),
-        );
-        chosen = chosen || savedInChosenPlace(where);
-        saved++;
-        continue;
-      }
       final file = await files.materialize(
         sessionId,
         Artifact(path: item.path, origin: ArtifactOrigin.linked, turn: 0),
@@ -891,11 +877,8 @@ Future<void> saveMediaItems(BuildContext context, WidgetRef ref, String sessionI
       await media.saveVideoFile(file.path, name: item.name);
       saved++;
     } on PlatformException catch (error) {
-      if (ohos) {
-        if (saveWindowDismissed(error)) break;
-        failure ??= 'failed';
-        continue;
-      }
+      // Backed out of HarmonyOS's album window: stop asking, nothing to report.
+      if (saveWindowDismissed(error)) break;
       failure ??= error.code;
     } catch (_) {
       failure ??= 'failed';
@@ -903,13 +886,7 @@ Future<void> saveMediaItems(BuildContext context, WidgetRef ref, String sessionI
   }
   if (saved > 0) {
     HapticFeedback.lightImpact();
-    messenger?.showBriefNotice(
-      chosen
-          ? l10n.harmonySaved
-          : videos.isEmpty
-          ? l10n.mediaSavedCount(saved)
-          : l10n.mediaSavedFilesCount(saved),
-    );
+    messenger?.showBriefNotice(videos.isEmpty ? l10n.mediaSavedCount(saved) : l10n.mediaSavedFilesCount(saved));
   }
   if (failure != null) {
     messenger?.showSnackBar(SnackBar(content: Text(gallerySaveErrorText(failure))));

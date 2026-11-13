@@ -53,7 +53,7 @@ export default class FilesMediaPlugin implements FlutterPlugin, AbilityAware {
     } });
     this.media.setMethodCallHandler({ onMethodCall: (call: MethodCall, result: MethodResult): void => {
       if (this.engineBinding !== binding) { result.error('cancelled', '窗口已关闭，操作已取消。', null); return; }
-      if (!['saveImage', 'openSettings'].includes(call.method)) { result.notImplemented(); return; }
+      if (!['saveImage', 'saveVideoFile', 'openSettings'].includes(call.method)) { result.notImplemented(); return; }
       this.reply(this.mediaCall(call), result);
     } });
   }
@@ -310,6 +310,7 @@ export default class FilesMediaPlugin implements FlutterPlugin, AbilityAware {
 
   private async mediaCall(call: MethodCall): Promise<Any> {
     if (call.method === 'openSettings') return false; // 每次保存走确认对话框，不申请广泛媒体权限。
+    if (call.method === 'saveVideoFile') return await this.saveVideo(call);
     const context = this.ui();
     const generation = this.generation;
     const bytes = call.argument('bytes') as Uint8Array;
@@ -365,6 +366,41 @@ export default class FilesMediaPlugin implements FlutterPlugin, AbilityAware {
         try { await helper.release(); } catch (_error) { hilog.warn(0x3F00, 'DshFiles', '相册句柄释放失败'); }
       }
       if (directory) await this.removeTemporary(directory, path);
+    }
+  }
+
+  // 已在本机工作区或缓存里的视频：相册确认窗口给出位置后，逐块复制过去。
+  private async saveVideo(call: MethodCall): Promise<string> {
+    const context = this.ui();
+    const generation = this.generation;
+    const source = call.argument('path') as string;
+    const name = this.safeName(call.argument('name') as string);
+    const dot = name.lastIndexOf('.');
+    const extension = dot > 0 ? name.substring(dot + 1).toLowerCase() : '';
+    if (!['mp4', 'm4v', 'mov', '3gp', 'mkv', 'webm'].includes(extension)) {
+      throw new FileChannelError('invalid', '此视频格式不能保存到相册。');
+    }
+    if (this.picking) throw new FileChannelError('busy', '已有文件选择窗口，请先完成或取消。');
+    this.picking = true;
+    let helper: photoAccessHelper.PhotoAccessHelper | undefined;
+    try {
+      const input = await this.openLocal(source, generation);
+      try {
+        helper = photoAccessHelper.getPhotoAccessHelper(context);
+        const uris = await helper.showAssetsCreationDialog([fileUri.getUriFromPath(source)],
+          [{ title: name.substring(0, dot), fileNameExtension: extension, photoType: photoAccessHelper.PhotoType.VIDEO }]);
+        this.active(generation);
+        if (uris.length !== 1) throw new FileChannelError('cancelled', '保存视频已取消。');
+        const output = await fs.open(uris[0], fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+        try { await this.copy(input, output.fd, generation); }
+        finally { await fs.close(output); }
+        return uris[0];
+      } finally { await fs.close(input); }
+    } finally {
+      this.picking = false;
+      if (helper) {
+        try { await helper.release(); } catch (_error) { hilog.warn(0x3F00, 'DshFiles', '相册句柄释放失败'); }
+      }
     }
   }
 }
