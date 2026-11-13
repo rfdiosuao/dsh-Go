@@ -20,6 +20,7 @@
 library;
 
 import 'engine.dart';
+import 'file_store.dart';
 import 'phase4_store.dart';
 import 'rpc_errors.dart';
 
@@ -30,12 +31,19 @@ class LomOptionalMethods {
     required this.engine,
     required this.pins,
     required this.deviceNames,
+    this.files,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final LomEngine engine;
   final LomPinStore pins;
   final LomDeviceNameStore deviceNames;
+
+  /// `file.*` store, or null when file transfer is not wired (then the
+  /// `file.*` methods stay `remote.method_unknown` and `chat.send` keeps
+  /// refusing attachments).
+  final LomFileStore? files;
+
   final DateTime Function() _now;
 
   /// Methods this phone actually implements, beyond the Phase 2/3 base
@@ -47,6 +55,15 @@ class LomOptionalMethods {
         'chat.delete',
         'device.status',
         'device.rename',
+        if (files != null) ...[
+          'file.begin',
+          'file.chunk',
+          'file.finish',
+          'file.read',
+          'file.list',
+          'file.delete',
+          'file.save_gallery',
+        ],
       };
 
   /// Pinned session ids, for the `chat.list` overlay (the engine has no
@@ -72,6 +89,16 @@ class LomOptionalMethods {
         return _deviceStatus();
       case 'device.rename':
         return _deviceRename(payload);
+      case 'file.begin':
+      case 'file.chunk':
+      case 'file.finish':
+      case 'file.read':
+      case 'file.list':
+      case 'file.delete':
+      case 'file.save_gallery':
+        final store = files;
+        if (store == null) throw LomRpcException('remote.method_unknown');
+        return store.handle(method, payload, sender);
       default:
         throw LomRpcException('remote.method_unknown');
     }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' as io;
 
 import 'package:dsh_app/lom/lom_phone.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -176,6 +177,17 @@ class _FakeEngine implements LomEngine {
   Future<String> deviceNetwork() async => network;
 }
 
+class _FakeGallerySaver implements LomGallerySaver {
+  String uri = 'content://media/external/images/media/42';
+  @override
+  Future<String> saveToGallery({
+    required String path,
+    required String name,
+    required String mime,
+  }) async =>
+      uri;
+}
+
 class _Harness {
   static const nowMs = 1767222000000;
 
@@ -185,10 +197,11 @@ class _Harness {
   late final _FakeEngine engine;
   late final LomRpcDispatcher dispatcher;
   late final LomChatReceiptStore receipts;
+  late final LomFileStore fileStore;
   final trusted = <String>{};
   var _ids = 0;
 
-  Future<void> init() async {
+  Future<void> init({LomFileStorage? fileStorage}) async {
     phone = await LomIdentity.generate();
     desktop = await LomIdentity.generate();
     trusted.add(desktop.keys);
@@ -196,6 +209,11 @@ class _Harness {
     engine = _FakeEngine();
     receipts = LomChatReceiptStore(store);
     engine.receipts = receipts;
+    fileStore = LomFileStore(
+      store,
+      storage: fileStorage ?? MemoryLomFileStorage(),
+      gallerySaver: _FakeGallerySaver(),
+    );
     dispatcher = LomRpcDispatcher(
       identity: phone,
       trustedSenders: () => trusted,
@@ -207,6 +225,7 @@ class _Harness {
         engine: engine,
         pins: LomPinStore(store),
         deviceNames: LomDeviceNameStore(store),
+        files: fileStore,
         now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
       ),
       now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
@@ -947,6 +966,127 @@ void main() {
       }
       expect(methods, isNot(contains('screen.capture')));
       expect(methods, isNot(contains('subagent.list')));
+    });
+  });
+
+  group('Phase 4: file.* over RPC', () {
+    const fileId = '0123456789abcdef';
+    final fileBytes = utf8.encode('hello');
+    // SHA-256 of "hello".
+    const fileSha =
+        '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
+
+    Future<void> uploadViaRpc(_Harness h) async {
+      await h.reply(await h.call('file.begin', {
+        'id': fileId,
+        'name': 'hello.txt',
+        'mime': 'text/plain',
+        'size': '5',
+        'sha256': fileSha,
+      }));
+      await h.reply(await h.call('file.chunk', {
+        'id': fileId,
+        'offset': '0',
+        'data': base64Encode(fileBytes),
+      }));
+      final (status, state, _) = await h.reply(
+        await h.call('file.finish', {'id': fileId}),
+      );
+      expect(status, 'ok');
+      expect(state['status'], 'complete');
+    }
+
+    test('begin/chunk/finish/read round-trips and lists in capabilities',
+        () async {
+      final h = _Harness();
+      await h.init();
+      await uploadViaRpc(h);
+      final (status, read, _) = await h.reply(
+        await h.call('file.read', {'id': fileId, 'offset': '0'}),
+      );
+      expect(status, 'ok');
+      expect(base64Decode(read['data'] as String), fileBytes);
+      expect(read['next'], '5');
+      final (_, caps, _) =
+          await h.reply(await h.call('device.capabilities', {}));
+      final methods = (caps['methods'] as List).cast<String>();
+      for (final m in [
+        'file.begin',
+        'file.chunk',
+        'file.finish',
+        'file.read',
+        'file.list',
+        'file.delete',
+        'file.save_gallery',
+      ]) {
+        expect(methods, contains(m));
+      }
+      expect((caps['limits'] as Map)['file.max_bytes'], 104857600);
+    });
+
+    test('chat.send accepts verified attachments, refuses the rest',
+        () async {
+      final h = _Harness();
+      await h.init();
+      await h.syncModel();
+      final (_, _, unknownError) = await h.reply(
+        await h.call('chat.send', {
+          'client_id': 'aaaaaaaa-0000-0000-0000-000000000001',
+          'session_id': '',
+          'text': 'look',
+          'files': '["$fileId"]',
+        }),
+      );
+      expect(unknownError, 'file.missing');
+      // Uploaded but not finished: incomplete.
+      await h.reply(await h.call('file.begin', {
+        'id': fileId,
+        'name': 'hello.txt',
+        'mime': 'text/plain',
+        'size': '5',
+        'sha256': fileSha,
+      }));
+      final (_, _, incompleteError) = await h.reply(
+        await h.call('chat.send', {
+          'client_id': 'aaaaaaaa-0000-0000-0000-000000000002',
+          'session_id': '',
+          'text': 'look',
+          'files': '["$fileId"]',
+        }),
+      );
+      expect(incompleteError, 'file.incomplete');
+      await uploadViaRpc(h);
+      final (status, sent, _) = await h.reply(
+        await h.call('chat.send', {
+          'client_id': 'aaaaaaaa-0000-0000-0000-000000000003',
+          'session_id': '',
+          'text': 'look',
+          'files': '["$fileId"]',
+        }),
+      );
+      expect(status, 'ok');
+      expect(sent['status'], 'accepted');
+    });
+
+    test('save_gallery returns the MediaStore URI for a finished file',
+        () async {
+      final dir = await io.Directory.systemTemp.createTemp('lom-rpc-file');
+      try {
+        final h = _Harness();
+        await h.init(fileStorage: IoLomFileStorage(dir));
+        await uploadViaRpc(h);
+        final (status, saved, _) = await h.reply(
+          await h.call('file.save_gallery', {'id': fileId}),
+        );
+        expect(status, 'ok');
+        expect(saved['status'], 'saved');
+        expect(
+          saved['uri'],
+          'content://media/external/images/media/42',
+        );
+      } finally {
+        await dir.delete(recursive: true);
+      }
     });
   });
 }

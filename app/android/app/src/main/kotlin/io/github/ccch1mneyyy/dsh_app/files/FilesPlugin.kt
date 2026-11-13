@@ -43,6 +43,9 @@ import kotlin.concurrent.thread
  * - `saveToDownloads {path, name, mime}` → shown location (`Download/DSH-Go/x.pdf`):
  *   MediaStore Downloads on API 29+, the public Downloads directory before
  *   (asks for the storage permission when needed).
+ * - `lomSaveToGallery {path, name, mime}` → the MediaStore `content://media/…` URI
+ *   of the saved copy (Images for image/*, Downloads otherwise), for Lom
+ *   `file.save_gallery`. Same permission behaviour as `saveToDownloads`.
  *
  * - `pdfInfo {path}` → page sizes; `pdfPage {path, page, width}` → PNG bytes;
  *   `pdfClose` (in-app PDF preview, [PdfPages]).
@@ -97,6 +100,7 @@ class FilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandle
             "listOutputs" -> background(result) { listOutputs(call.argument<Int>("depth") ?: 3) }
             "open" -> open(call, result)
             "saveToDownloads" -> save(call, result)
+            "lomSaveToGallery" -> saveGallery(call, result)
             "pdfInfo" -> pdf(result) { info(call.argument<String>("path") ?: "") }
             "pdfPage" -> pdf(result) {
                 render(call.argument<String>("path") ?: "", call.argument<Int>("page") ?: 0, call.argument<Int>("width") ?: 1080)
@@ -166,6 +170,68 @@ class FilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandle
         val name = safeName(call.argument<String>("name") ?: file.name)
         val mime = mimeOf(call.argument<String>("mime"), name)
         saveOrAsk(file, name, mime, result, asked = false)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Save to gallery (Lom `file.save_gallery`): same permission behaviour as
+    // `saveToDownloads`, but the result is the MediaStore `content://media/…`
+    // URI (not the shown path), so the caller can hand it back to Lom.
+
+    private fun saveGallery(call: MethodCall, result: MethodChannel.Result) {
+        val file = File(call.argument<String>("path") ?: "")
+        if (!file.isFile) return result.error("missing", "no such file", null)
+        val name = safeName(call.argument<String>("name") ?: file.name)
+        val mime = mimeOf(call.argument<String>("mime"), name)
+        saveGalleryOrAsk(file, name, mime, result, asked = false)
+    }
+
+    private fun saveGalleryOrAsk(file: File, name: String, mime: String, result: MethodChannel.Result, asked: Boolean) {
+        val retry = { saveGalleryOrAsk(file, name, mime, result, asked = true) }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !canWriteShared()) {
+            return if (asked) result.error("permission", "storage permission denied", null) else ask(result, retry)
+        }
+        thread(name = "dsh-files", isDaemon = true) {
+            val outcome = runCatching { saveGalleryNow(file, name, mime) }
+            main.post {
+                val error = outcome.exceptionOrNull()
+                val refused = error is SecurityException || (error is FilesError && error.code == "permission")
+                when {
+                    error == null -> result.success(outcome.getOrNull())
+                    refused && !asked && activity != null -> ask(result, retry)
+                    else -> fail(result, error)
+                }
+            }
+        }
+    }
+
+    private fun saveGalleryNow(file: File, name: String, mime: String): String {
+        val resolver = context.contentResolver
+        val isImage = mime.startsWith("image/")
+        val collection = if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            else MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val relative = if (isImage) "${Environment.DIRECTORY_PICTURES}/$SUBDIR"
+            else "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relative)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore refused the file")
+        try {
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                ?: throw IOException("cannot write $uri")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) <= 0) {
+                throw IOException("cannot publish file")
+            }
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+        return uri.toString()
     }
 
     /**

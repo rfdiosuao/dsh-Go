@@ -15,19 +15,25 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Directory;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:path_provider/path_provider.dart';
 
 import '../remote/network_watch.dart';
 import '../state/connection_state.dart' show localConnectionProvider;
 import 'credentials.dart';
 import 'dsh_engine.dart';
+import 'file_store.dart';
 import 'identity.dart';
+import 'io_adapters.dart';
 import 'lom_providers.dart';
 import 'optional_methods.dart';
 import 'pairing_api.dart';
 import 'phase4_store.dart';
+import 'platform_adapters.dart';
 import 'relay_client.dart';
 import 'rpc_dispatcher.dart';
 import 'rpc_store.dart';
@@ -170,6 +176,16 @@ class LomRelayController extends Notifier<LomRelayState> {
         return connection?.client;
       },
     );
+    // Phase 4 file transfer: bytes live under the app documents dir
+    // (`lom_files/<senderHash>/<id>.bin`), metadata in the secret store.
+    final docsDir = await getApplicationDocumentsDirectory();
+    final fileStore = LomFileStore(
+      secrets,
+      storage: IoLomFileStorage(
+        Directory('${docsDir.path}/lom_files'),
+      ),
+      gallerySaver: MethodChannelLomGallerySaver(),
+    );
     final dispatcher = LomRpcDispatcher(
       identity: identity,
       trustedSenders: () => creds.desktopKeys,
@@ -181,6 +197,7 @@ class LomRelayController extends Notifier<LomRelayState> {
         engine: engine,
         pins: LomPinStore(secrets),
         deviceNames: LomDeviceNameStore(secrets),
+        files: fileStore,
       ),
     );
     // A restart must never re-run an accepted-but-unfinished task: mark
