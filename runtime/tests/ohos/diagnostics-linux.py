@@ -56,6 +56,7 @@ sources = [
     'app/ohos/entry/src/main/ets/runtime/OhosRuntimeStorage.ets',
     'tooling/ohos/tests/runtime-archive-fixture.mjs',
     'app/lib/diagnostics/diagnostics_channel.dart',
+    'app/lib/diagnostics/system_ime_evidence.dart',
     'runtime/tests/ohos/diagnostics-fixture.mjs',
     'runtime/tests/ohos/diagnostics.test.mjs',
     'runtime/tests/ohos/diagnostics-cold.mjs',
@@ -83,9 +84,15 @@ if status == 0:
         (stubs / name / 'lib').mkdir(parents=True)
     (stubs / 'flutter/lib/services.dart').write_text('''
 class MissingPluginException implements Exception {}
+class PlatformException implements Exception {
+  PlatformException({required this.code, this.message});
+  final String code;
+  final String? message;
+}
 class MethodChannel {
   const MethodChannel(this.name);
   final String name;
+  Future<T?> invokeMethod<T>(String method, [Object? arguments]) async => throw MissingPluginException();
   Future<Map<K,V>?> invokeMapMethod<K,V>(String method, [Object? arguments]) async => throw MissingPluginException();
   Future<List<T>?> invokeListMethod<T>(String method, [Object? arguments]) async => throw MissingPluginException();
 }
@@ -129,6 +136,10 @@ Future<void> main(List<String> args) async {
   check(raw.method=='engineLog' && (raw.arguments as Map)['maxBytes']==12345 && lines.join('|')=='第一行|tail', 'engineLog method, byte argument and UTF-8 list');
   final empty=await const DiagnosticsChannel().info();
   check(empty.app.isEmpty && empty.device.isEmpty && (await const DiagnosticsChannel().engineLog()).isEmpty, 'missing plugin retains existing fallback');
+  // DiagnosticsPlugin.ets answers notImplemented for anything but info/engineLog.
+  final ime=await channel.collectSystemIme();
+  await channel.cancelSystemIme();
+  check(ime.code=='unsupported' && ime.events.isEmpty, 'OH system IME capture is unsupported, not failed');
   final redacted=NativeDiagnostics.fromMap({'voice': {'transcript':'hidden', 'audio':'hidden', 'recognizerAvailable':true, 'recentFailures':[{'code':42,'transcript':'hidden'}]}}).voice;
   check(!jsonEncode(redacted).contains('hidden') && redacted['recognizerAvailable']==true, 'real Dart voice allowlist rejects content');
 }
@@ -138,7 +149,7 @@ Future<void> main(List<String> args) async {
     (out / 'dart-inputs.json').write_text(json.dumps({
         'executable': dart, 'sha256': hashlib.sha256(Path(dart).read_bytes()).hexdigest(),
         'actualConsumer': consumer, 'fixtures': [str(stubs), str(driver), str(config)],
-        'scope': 'Actual unmodified Dart consumer. MethodChannel and Provider are declared API doubles; no Flutter engine.'
+        'scope': 'Actual unmodified Dart consumer. MethodChannel, PlatformException and Provider are declared API doubles; no Flutter engine.'
     }, indent=2) + '\n')
 (out / 'report.json').write_text(json.dumps({'exit': status, 'commands': len(commands),
     'notRun': ['HarmonyOS SDK / ArkTS', 'device lifecycle', 'real OH filesystem API', 'Flutter engine transport']}, indent=2) + '\n')
