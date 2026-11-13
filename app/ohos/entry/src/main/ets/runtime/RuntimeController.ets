@@ -77,6 +77,7 @@ export class RuntimeController {
   private ownerAbility: UIAbility | null = null;
   private lifecycleTicks: number = 0;
   private idleDiagnosticsEnabled: boolean = false;
+  private workspaceRecovery: boolean = false;
   private idleDiagnosticsWindow: IdleDiagnosticsWindow | null = null;
   private lastLifecycleError: string | null = null;
   private sinks: RuntimeSink[] = [];
@@ -236,6 +237,7 @@ export class RuntimeController {
     if (this.resetRequested) throw new RuntimeChannelError('ohos_restart_required', '重置已请求，请重新打开应用后继续。');
     const recovering = this.recovery.status().resetPending;
     await this.readInstallation();
+    this.workspaceRecovery = await this.storage.exists(this.workspaceRecoveryPath());
     await this.recovery.initialize(Date.now(), (): Promise<void> => this.installPayload(), nativeHostTouched);
     this.lkgRecovering = true;
     try { this.assertLkgStopped(); await this.lastGood.recoverPending(); }
@@ -340,6 +342,7 @@ export class RuntimeController {
       ['safeState', recovery.nextMode === 'safe' ? 'on' : 'off'],
       ['safeReason', recovery.nextMode === 'safe' ? 'manual' : null], ['strikes', recovery.strikes], ['autoSafe', false],
       ['failure', recoveryFailure], ['mainFailure', null], ['healthyAt', null], ['networkBlocked', false], ['networkBlockedAt', null],
+      ['workspaceRecovery', this.workspaceRecovery],
       ['directEngineEnabled', false], ['directEngineAvailable', false], ['directEngineActive', false],
       ['directEngineFallbackReason', null], ['currentExecutionMode', active ? 'ohos-embedded' : null],
       ['launchSelectedMode', native.consumed ? 'ohos-embedded' : null], ['launchSpawned', native.consumed],
@@ -571,6 +574,7 @@ export class RuntimeController {
     try {
       await this.initialize();
       this.traceStart('initialized');
+      environment['DSH_APP_WORKSPACE_RECOVERY'] = this.workspaceRecovery ? '1' : '0';
       const selectedMode = await this.recovery.selectMode(mode);
       this.traceStart('mode ' + selectedMode);
       if ((native.phase === 'starting' || native.phase === 'running') && selectedMode === this.runMode) return;
@@ -633,6 +637,26 @@ export class RuntimeController {
 
   private traceStart(step: string): void {
     hilog.info(0x3F00, 'DshRuntime', 'start %{public}s at %{public}d ms', step, Date.now() - this.startBegan);
+  }
+
+  // 下次启动改用独立的救援工作区索引；只在引擎停下时改，写入落盘后才算数。
+  // 标记放在运行时目录里，重置时随运行时一起清掉，和 Android 一样。
+  async setWorkspaceRecovery(enabled: boolean): Promise<void> {
+    if (this.pending !== null || ['starting', 'running', 'stopping'].includes(nativeHostState().phase)) {
+      throw new RuntimeChannelError('runtime_not_stopped', '引擎尚未停止，未切换工作区索引。');
+    }
+    try {
+      if (enabled) await this.storage.writeTextAtomic(this.workspaceRecoveryPath(), '1\n');
+      else await this.storage.removeFile(this.workspaceRecoveryPath());
+    } catch (_error) {
+      throw new RuntimeChannelError('workspace_recovery_save_failed', '工作区索引模式未保存。');
+    }
+    this.workspaceRecovery = enabled;
+    this.emitStatus();
+  }
+
+  private workspaceRecoveryPath(): string {
+    return this.installer.base + '/workspace-recovery';
   }
 
   async reset(keep: string[], reinstall: boolean): Promise<void> {
