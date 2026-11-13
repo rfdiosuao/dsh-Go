@@ -16898,6 +16898,198 @@ abstract class L10n {
   /// **'安装后即可登录'**
   String get localEnvSignInInstallFirst;
 
+  /// No description provided for @lomPairAccount.
+  ///
+  /// In zh, this message translates to:
+  /// **'账号'**
+  String get lomPairAccount;
+
+  /// No description provided for @lomPairCodeEntry.
+  ///
+  /// In zh, this message translates to:
+  /// **'改用配对码'**
+  String get lomPairCodeEntry;
+
+  /// No description provided for @lomPairCodeHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'配对码显示在电脑上，例如 AB3D-9XK2。'**
+  String get lomPairCodeHint;
+
+  /// No description provided for @lomPairCodeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入 8 位配对码'**
+  String get lomPairCodeTitle;
+
+  /// No description provided for @lomPairConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认连接'**
+  String get lomPairConfirm;
+
+  /// No description provided for @lomPairConfirmTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'要连接这台电脑吗？'**
+  String get lomPairConfirmTitle;
+
+  /// No description provided for @lomPairConnected.
+  ///
+  /// In zh, this message translates to:
+  /// **'已连接 {name}'**
+  String lomPairConnected(String name);
+
+  /// No description provided for @lomPairDesktop.
+  ///
+  /// In zh, this message translates to:
+  /// **'电脑'**
+  String get lomPairDesktop;
+
+  /// No description provided for @lomPairEntry.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接 Lom'**
+  String get lomPairEntry;
+
+  /// No description provided for @lomPairEntryHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'扫电脑上 Lom 显示的二维码，手机保持在线后 Lom 才能派活。'**
+  String get lomPairEntryHint;
+
+  /// No description provided for @lomPairErrAlreadyPaired.
+  ///
+  /// In zh, this message translates to:
+  /// **'这台手机已配对，要扫新的码请先解除配对。'**
+  String get lomPairErrAlreadyPaired;
+
+  /// No description provided for @lomPairErrCodeInvalid.
+  ///
+  /// In zh, this message translates to:
+  /// **'配对码不正确'**
+  String get lomPairErrCodeInvalid;
+
+  /// No description provided for @lomPairErrDesktopTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'电脑迟迟没有确认，请重新扫码。'**
+  String get lomPairErrDesktopTimeout;
+
+  /// No description provided for @lomPairErrExpired.
+  ///
+  /// In zh, this message translates to:
+  /// **'配对码已过期，请在电脑上刷新。'**
+  String get lomPairErrExpired;
+
+  /// No description provided for @lomPairErrFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'配对未完成，请重新扫码。'**
+  String get lomPairErrFailed;
+
+  /// No description provided for @lomPairErrInvalidLink.
+  ///
+  /// In zh, this message translates to:
+  /// **'这不是有效的 Lom 配对码'**
+  String get lomPairErrInvalidLink;
+
+  /// No description provided for @lomPairErrKeyMismatch.
+  ///
+  /// In zh, this message translates to:
+  /// **'配对信息不一致，请重新扫码。'**
+  String get lomPairErrKeyMismatch;
+
+  /// No description provided for @lomPairErrNetwork.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法连接 Lom 服务，请检查网络。'**
+  String get lomPairErrNetwork;
+
+  /// No description provided for @lomPairErrStoreFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存配对失败，请重试。'**
+  String get lomPairErrStoreFailed;
+
+  /// No description provided for @lomPairFailedTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接失败'**
+  String get lomPairFailedTitle;
+
+  /// No description provided for @lomPairReconnecting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在重连…'**
+  String get lomPairReconnecting;
+
+  /// No description provided for @lomPairRevoked.
+  ///
+  /// In zh, this message translates to:
+  /// **'这台手机已解除配对，请重新扫码连接。'**
+  String get lomPairRevoked;
+
+  /// No description provided for @lomPairSasHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认前请核对电脑上显示的确认码与下面的一致。'**
+  String get lomPairSasHint;
+
+  /// No description provided for @lomPairSasTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'核对确认码'**
+  String get lomPairSasTitle;
+
+  /// No description provided for @lomPairScanAgain.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新扫码'**
+  String get lomPairScanAgain;
+
+  /// No description provided for @lomPairScanHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'对准电脑上 Lom 显示的配对二维码'**
+  String get lomPairScanHint;
+
+  /// No description provided for @lomPairSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'扫 Lom 桌面端显示的二维码，把这台手机连上 Lom。'**
+  String get lomPairSubtitle;
+
+  /// No description provided for @lomPairTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接 Lom'**
+  String get lomPairTitle;
+
+  /// No description provided for @lomPairUnpair.
+  ///
+  /// In zh, this message translates to:
+  /// **'解除配对'**
+  String get lomPairUnpair;
+
+  /// No description provided for @lomPairUnpairBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'解除后 Lom 不再向这台手机派活，会话、技能和记忆保留在本机。'**
+  String get lomPairUnpairBody;
+
+  /// No description provided for @lomPairUnpairTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'解除这台手机的配对？'**
+  String get lomPairUnpairTitle;
+
+  /// No description provided for @lomPairWaitingDesktop.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在等待电脑核对…'**
+  String get lomPairWaitingDesktop;
+
   /// No description provided for @marketSectionOfficial.
   ///
   /// In zh, this message translates to:

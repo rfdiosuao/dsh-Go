@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
  * Sources: MainActivity's launch intent (cold start) and every onNewIntent (the activity is
  * singleTop). What is delivered, one map per arrival:
  *
- * - `{uri}`: an ACTION_VIEW link (`dshgo://…`, or `https://…` once App Links are verified).
+ * - `{uri}`: an ACTION_VIEW link (`dshgo://…`, `lom://pair…`, or `https://…` once App Links are verified).
  * - `{uri: "file://…", name}`: a file opened with the app (ACTION_VIEW `content:` / `file:`),
  *   copied into `cache/links/` first so Dart can read it with dart:io. The copy keeps the
  *   sender's display name as its last path segment. (Files *shared* to the app, `.dshgo`
@@ -97,7 +97,7 @@ class LinksPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandle
             Intent.ACTION_VIEW -> {
                 val data = intent.data ?: return false
                 when (data.scheme?.lowercase()) {
-                    SCHEME, "https", "http" -> deliver(mapOf("uri" to data.toString()))
+                    SCHEME, "lom", "https", "http" -> deliver(mapOf("uri" to data.toString()))
                     "content", "file" -> copyThenDeliver(data)
                     else -> return false
                 }

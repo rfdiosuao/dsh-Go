@@ -130,6 +130,9 @@
     <string name="pet_settings">Pet settings</string>
     <string name="pet_channel">Floating pet</string>
     <string name="pet_running">Floating pet is on</string>
+    <!-- lom -->
+    <string name="lom_channel">Lom relay</string>
+    <string name="lom_running">Connected to Lom — staying online for your computer</string>
     <string name="pet_window_title">DSH pet</string>
     <string name="pet_label">Pet</string>
     <string name="pet_open_channel">Open from pet</string>

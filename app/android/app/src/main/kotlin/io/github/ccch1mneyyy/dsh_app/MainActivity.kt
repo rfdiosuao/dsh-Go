@@ -17,6 +17,8 @@ import io.github.ccch1mneyyy.dsh_app.files.FilesPlugin
 import io.github.ccch1mneyyy.dsh_app.launch.LaunchScreen
 import io.github.ccch1mneyyy.dsh_app.launch.LaunchThemeSync
 import io.github.ccch1mneyyy.dsh_app.links.LinksPlugin
+import io.github.ccch1mneyyy.dsh_app.lom.LomKeystorePlugin
+import io.github.ccch1mneyyy.dsh_app.lom.LomRelayPlugin
 import io.github.ccch1mneyyy.dsh_app.notify.NotifyPlugin
 import io.github.ccch1mneyyy.dsh_app.phone.PhonePlugin
 import io.github.ccch1mneyyy.dsh_app.runtime.LaunchStart
@@ -45,6 +47,8 @@ class MainActivity : FlutterActivity() {
             engine.plugins.add(NotifyPlugin())
             engine.plugins.add(FilesPlugin())
             engine.plugins.add(LinksPlugin())
+            engine.plugins.add(LomKeystorePlugin())
+            engine.plugins.add(LomRelayPlugin())
             engine.plugins.add(UpdatePlugin())
             engine.plugins.add(VoicePlugin())
             engine.plugins.add(SharePlugin())
