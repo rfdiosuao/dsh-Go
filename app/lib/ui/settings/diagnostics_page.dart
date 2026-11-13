@@ -128,7 +128,8 @@ class DiagnosticsPage extends ConsumerWidget {
             InfoRow(label: 'API Key', value: settings.hasApiKey ? l10n.pluginsConfigured : l10n.commonNotSet),
           ],
         ),
-        const SystemImeDiagnosticsSection(),
+        // The capture reads Android's system log; HarmonyOS gives apps no such log.
+        if (ref.watch(androidSystemFeaturesProvider)) const SystemImeDiagnosticsSection(),
         DiagnosticsExportCard(
           title: l10n.pluginsExport,
           extra: [
