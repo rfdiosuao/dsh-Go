@@ -50,7 +50,7 @@ ZIP 通过完整验证后先写原 `workshop/blobs/<ZIP SHA>.zip`；派生图以
 
 `WORKSHOP_UPLOAD_ENABLED=1` 与 `WORKSHOP_COMPANION_ENABLED=1` 在 `wrangler.jsonc` 里默认设为 1，未配置时也视为开启；设为 0（或其他非 1 的显式值）分别返回稳定的 `workshop_upload_disabled` 或 `workshop_companion_disabled`。上传关闭不阻止本人查询、撤回、举报和管理员拒绝 / 撤回。旧宠物市场不受这两个开关影响。
 
-Worker 只向配置的 HTTPS 论坛 origin（`WORKSHOP_FORUM_URL`，默认 `https://forum.dshtui.com`）请求 `/session/current.json`；拒绝带路径 / 凭据的配置，并以 manual 方式接收响应、拒绝所有非 200 状态，禁止跟随重定向。本地 workerd 里 `redirect: 'error'` 不受支持，不能照搬浏览器 / Node 的该选项。只传 User-Api-Key，不转发客户端 Cookie、Authorization、可变的论坛 URL 或 `User-Api-Client-Id`；后者在 Discourse 模型中可能修改 key 所属的 client。只信官方当前用户响应中的正整数 id 和用户名，拒绝错误状态、过大或无有效身份的响应。完整 key 不落 R2 / KV / 日志，也不作持久指纹。用户名是显示快照；稳定身份是 origin + userId。
+Worker 只向配置的 HTTPS 论坛 origin（`WORKSHOP_FORUM_URL`，默认 `https://forum.dshtui.com`）请求 `/session/current.json`；拒绝带路径 / 凭据的配置，并以 manual 方式接收响应、拒绝所有非 200 状态，禁止跟随重定向。本地 workerd 里 `redirect: 'error'` 不受支持，不能沿用浏览器 / Node 的该选项。只传 User-Api-Key，不转发客户端 Cookie、Authorization、可变的论坛 URL 或 `User-Api-Client-Id`；后者在 Discourse 模型中可能修改 key 所属的 client。只信官方当前用户响应中的正整数 id 和用户名，拒绝错误状态、过大或无有效身份的响应。完整 key 不落 R2 / KV / 日志，也不作持久指纹。用户名是显示快照；稳定身份是 origin + userId。
 
 每个作者身份请求都必须携带 `X-Workshop-Forum-Origin`，声明该账号凭据所属的规范化论坛 origin。Worker 在请求论坛前，将断言与本次请求读取的配置 origin 做严格等值比较；缺失、空值或不等均返回 `409 / workshop_forum_origin`，不提供省略断言的回退。出站地址始终取自配置，断言既不选择上游，也不转发给论坛。公共查询与管理员的独立身份门不要求此头。
 

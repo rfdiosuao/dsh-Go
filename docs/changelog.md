@@ -421,12 +421,12 @@
 ### 中文
 
 - DSH Remote 更省流量：会话列表不再在每次对话状态变化时整份重新下载；App 切到后台 30 秒后，进行中的对话暂停逐字推送，回到前台时一次同步到最新（会短暂显示同步中）；连接有数据往来时不再额外发送检测请求，网络慢时也不容易误判断线、反复重连。
-- DSH Remote 跟进 ds-harness-remote 的最新协议：主机插件更新到 0.6.0 后，远程流量会改走服务器分配的独立中继节点，减轻主服务器的压力；协议校验也和上游保持一致。感谢 DSH Remote 作者李国宝。
+- DSH Remote 跟进 ds-harness-remote 的最新协议：主机插件更新到 0.6.0 后，远程流量会改走服务器分配的独立中继节点，减轻主服务器的压力；协议校验也和上游保持一致。
 
 ### English
 
 - DSH Remote uses less data: the session list is no longer downloaded in full every time a chat changes state; 30 seconds after DSH Go goes to the background, a running chat stops streaming word by word and catches up in one go when you return (it shows syncing briefly); and the connection no longer sends extra health checks while data is flowing, so a slow network is less likely to look like a drop and reconnect over and over.
-- DSH Remote follows the latest ds-harness-remote protocol: once the Host plugin is on 0.6.0, remote traffic moves to a separate Relay node assigned by the server, taking load off the main server; protocol checks match upstream too. Thanks to liguobao, the author of DSH Remote.
+- DSH Remote follows the latest ds-harness-remote protocol: once the Host plugin is on 0.6.0, remote traffic moves to a separate Relay node assigned by the server, taking load off the main server; protocol checks match upstream too.
 
 ## 1.0.1 · 2026-10-30
 

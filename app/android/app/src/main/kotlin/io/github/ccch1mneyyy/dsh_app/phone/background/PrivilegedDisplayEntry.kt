@@ -1,5 +1,8 @@
-// Portions derived from Phase (https://github.com/CikeSeven/phase), used with the author's permission. See THIRD_PARTY_NOTICES.md.
-// Portions derived from DSHA (https://github.com/DSH-APP/DSHA), MIT, Copyright (c) 2026 qiannianhuanxiang. See THIRD_PARTY_NOTICES.md.
+// SPDX-FileCopyrightText: 2026 CikeSeven (used with the author's permission)
+// See THIRD_PARTY_NOTICES.md.
+// SPDX-FileCopyrightText: 2026 qiannianhuanxiang
+// SPDX-License-Identifier: MIT
+// See THIRD_PARTY_NOTICES.md.
 package io.github.ccch1mneyyy.dsh_app.phone.background
 
 import android.annotation.SuppressLint

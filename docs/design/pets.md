@@ -5,7 +5,7 @@
 
 ## 0. 结论
 
-- **协议照 Clawd on Desk。** 状态名、事件对应、优先级、一次性与持续态的划分都沿用 Clawd，两套素材因此可以直接用。Codex Pet 留到第二期，作为导入格式。
+- **协议与 Clawd on Desk 一致。** 状态名、事件对应、优先级、一次性与持续态的划分都沿用 Clawd，两套素材因此可以直接用。Codex Pet 留到第二期，作为导入格式。
 - **宠物是状态指示器，不是养成游戏。** 它只表达 agent 在干什么、有没有事等你，不设饥饿、好感之类的数值，不主动调模型、不独立联网；「问一句」由用户触发，复用聊天发送链路。dsh-pet 每 5 分钟调一次模型说话，是我们明确不做的反例。
 - **一屏一个吉祥物。** 宠物站在活动条上时接管鲸尾；空状态里的静止鲸尾在宠物开启时也隐藏。
 - **同一件事只提醒一次。** 宠物在屏幕上时，它的气泡替代现有的玻璃横幅。当前正在看的对话不冒气泡，只做动作。后台照常发系统通知。
@@ -13,11 +13,11 @@
 - **像素必须清楚。** 每个美术像素对应整数个**物理**像素，位置也对齐物理像素。尺寸按身体高度分小、标准、大三档。
 - **悬浮窗做成可降级的可选项。** 默认关闭，用户打开时再申请权限。被拒、被系统藏起、被 ROM 杀掉，都退回 App 内宠物加系统通知，不报错。
 
-## 1. 调研：借什么、避什么
+## 1. 调研：采用什么、避开什么
 
 ### 1.1 逐个看
 
-| 产品 | 是什么 | 借鉴 | 避开 |
+| 产品 | 是什么 | 采用 | 避开 |
 |---|---|---|---|
 | **Clawd on Desk**（rullerzhou-afk，AGPL-3.0，美术另行授权） | 给 Claude Code、Codex 等编程 agent 用的像素桌宠，由 agent hook 驱动 12 种状态 | 状态集与事件对应，优先级表（error 8、notification 7、sweeping 6、attention 5、carrying / juggling 4、working 3、thinking 2、idle / roam 1、sleeping 0）。一次性态与持续态分开：attention、error、sweeping、notification、carrying 是一次性的。按会话数分档，用 `minDisplay` / `autoReturn` 控制停留时长。Stop 先按 working 压一会儿，没有后续进展才升成 attention，避免连续轮次反复庆祝。命中框分 default、wide、sleeping 三种，可按动画覆盖。60 秒无操作入睡，被唤醒时播 waking。mini 模式贴在屏幕边上探头。尺寸可调，按 `contentBox` 和 `baseline` 锚定 | 权限气泡里直接放「允许 / 拒绝」：桌面上有键鼠还算安全，手机悬浮窗上一点就批，误触和点击劫持风险太大。眼睛跟随依赖 SVG 和鼠标，手机上没有指针 |
 | **Codex Pets**（OpenAI Codex） | Codex 内置的悬浮伙伴，只表达三件事：在跑、等你输入、可以审阅了 | 状态极少、一眼看懂。用 `/pet`、设置页、命令面板随时收起或唤回。图集格式简单：8 列 × 9 行，每格 192×208，配一个 `pet.json`。codex-pet-web 的随机待机动作平均 120 秒一次，最短 45 秒、最长 300 秒，只在宠物空闲且可见时触发 | 9 行图集里没有睡觉、出错分档之类的状态，导入时只能降级映射（§3.5） |
@@ -276,7 +276,7 @@ app/assets/pets/<id>/<anim>.png     # 序列帧图，默认单行横条；帧多
   - Deepy 一段最多 68 帧：5 倍时单行宽 17,680 像素，会超过很多 GPU 的纹理上限。所以保持 5 倍，用网格排列（`cols`）并去重。
 - ★ **`box`**：每段动画的帧格只裁到这段动画实际有像素的范围，`box` 是帧格贴回画布的位置（逻辑像素）。`frameW = box.w × scale`。
 - **`frames`**：每项是 `{i, ms}`，`i` 指向图里的第几格。相同的帧只存一格，靠 `i` 重复引用。Deepy 是统一 20fps，持帧多，去重能省下不少。
-- ★ **`hitBoxes`**：结构照 Clawd：`default`、`wide`、`sleeping` 三类框，加上 `byAnim` 单独给框，单位是逻辑像素。两个包的框都从帧里量出来，不照搬主题：
+- ★ **`hitBoxes`**：结构与 Clawd 的分类一致：`default`、`wide`、`sleeping` 三类框，加上 `byAnim` 单独给框，单位是逻辑像素。两个包的框都从帧里量出来，不沿用主题：
   - 每帧只取最大的一块连通区域当身体，思考云、Zzz、音符这类脱离身体的道具不算；
   - 一段动画里至少 25 % 时间是身体的格子，才算进这段的身体框；
   - 超出 `default` 较多的动画进 `wideAnims`；离 `default` 太远或被拎起来的，在 `byAnim` 里单独给框；
@@ -286,13 +286,13 @@ app/assets/pets/<id>/<anim>.png     # 序列帧图，默认单行横条；帧多
   - `everyMs` 是插播间隔：平均 120 秒，最短 45 秒，最长 300 秒，只在空闲且可见时计时；
   - `anims` 是待机池，每项带时长和权重。
   - 基础待机循环在 `states.idle[0]`，不放进池子。
-  - 时长都是整 2 遍：Deepy 照搬 Clawd 的 `idleAnimations.duration`，鲸娘按原页的循环时长算。
+  - 时长都是整 2 遍：Deepy 的取值与 Clawd 的 `idleAnimations.duration` 一致，鲸娘按原页的循环时长算。
 - ★ **`bonus`**：attention 时按 `chance` 的概率改播彩蛋动画。鲸娘的 `smile-hearts`、`thumbs-up` 放在这里，概率 0.2。Deepy 没有彩蛋，写 `{}`。
 - ★ **`roam.faces`**：美术本身朝哪边，取 `"left"`、`"right"` 或 `"front"`。它取代含义不清的 `flip`。
   - `left`、`right`：往反方向走时以 `anchor.x` 为轴镜像。Deepy 的 `roamFlipAssets: true` 表示美术朝左，所以是 `left`。
   - `front`：正面，不镜像。鲸娘是 `front`，镜像会把发花和尾巴换边。
 - **`timings`**：
-  - Deepy 从 Clawd 主题照搬，只去掉 notification 的 `autoReturn`。
+  - Deepy 的取值与 Clawd 主题一致，只去掉 notification 的 `autoReturn`。
   - 鲸娘按原页事件表的保持遍数换算：error 1 遍，1480ms；happy 2 遍，3040ms；carrying 2 遍，2240ms；waking 1 遍，1880ms；notification 3 遍，2640ms，只作 `minDisplay`。
   - 鲸娘的压缩动画在原页里一直保持到下一个事件，没写遍数，所以 sweeping 的 `minDisplay` 取 1 遍，1740ms。
   - notification 不设 `autoReturn`，见 §4。

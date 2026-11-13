@@ -1,4 +1,5 @@
-// Portions derived from Phase (https://github.com/CikeSeven/phase), used with the author's permission. See THIRD_PARTY_NOTICES.md.
+// SPDX-FileCopyrightText: 2026 CikeSeven (used with the author's permission)
+// See THIRD_PARTY_NOTICES.md.
 // Shizuku binding, permission and status, through the Shizuku API (dev.rikka.shizuku).
 package io.github.ccch1mneyyy.dsh_app.phone.background
 

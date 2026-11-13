@@ -1,4 +1,5 @@
-// Portions derived from Phase (https://github.com/CikeSeven/phase), used with the author's permission. See THIRD_PARTY_NOTICES.md.
+// SPDX-FileCopyrightText: 2026 CikeSeven (used with the author's permission)
+// See THIRD_PARTY_NOTICES.md.
 // Local changes: a status control at the top in three forms (ball, capsule, card) on one morphing
 // surface; separate confirm and handoff cards; buttons that refuse injected or obscured touches;
 // pass-through and hide hooks for the Actuator and screenshots; blocking UserGate calls.
