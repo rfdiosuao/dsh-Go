@@ -26,6 +26,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'engine.dart';
 import 'envelope.dart';
 import 'identity.dart';
+import 'optional_methods.dart';
 import 'rpc_errors.dart';
 import 'rpc_store.dart';
 import 'schedule_mapping.dart';
@@ -56,6 +57,7 @@ class LomRpcDispatcher {
     required this.modelConfigs,
     required this.receipts,
     required this.engine,
+    this.optional,
     DateTime Function()? now,
     this.cancelWait = lomChatCancelWait,
   }) : _now = now ?? DateTime.now;
@@ -69,14 +71,21 @@ class LomRpcDispatcher {
   final LomModelConfigStore modelConfigs;
   final LomChatReceiptStore receipts;
   final LomEngine engine;
+
+  /// Phase 4 (optional-method) handlers, or null when none are wired.
+  /// The dispatcher only answers — and only advertises — the methods
+  /// this object actually provides.
+  final LomOptionalMethods? optional;
+
   final DateTime Function() _now;
 
   /// How long `chat.cancel` waits for the turn to really stop.
   final Duration cancelWait;
 
   /// Methods this phone actually implements. `device.capabilities` is
-  /// generated from this set, so the two can never drift apart.
-  static const implementedMethods = <String>{
+  /// generated from this set, so the two can never drift apart: the
+  /// Phase 2/3 base set plus whatever the optional handlers provide.
+  static const _baseMethods = <String>{
     'device.capabilities',
     'model.sync',
     'chat.send',
@@ -87,6 +96,9 @@ class LomRpcDispatcher {
     'document.read',
     'schedule.list',
   };
+
+  Set<String> get implementedMethods =>
+      {..._baseMethods, ...?optional?.availableMethods};
 
   /// In-memory history cache per session (message id → message, plus the
   /// newest observed turn outcome). Rebuilt from the engine after a
@@ -236,6 +248,18 @@ class LomRpcDispatcher {
         return _chatList(payload);
       case 'chat.cancel':
         return _chatCancel(payload);
+      case 'chat.rename':
+      case 'chat.pin':
+      case 'chat.delete':
+      case 'device.status':
+      case 'device.rename':
+        final result =
+            await optional!.handle(method, payload, sender);
+        // A deleted session must not linger in the read cache.
+        if (method == 'chat.delete') {
+          _historyCache.remove(_string(payload, 'session_id'));
+        }
+        return result;
       case 'document.list':
         return {'items': <Object?>[]};
       case 'document.read':
@@ -635,6 +659,8 @@ class LomRpcDispatcher {
     final page = offset < total
         ? sessions.sublist(offset, min(offset + lomChatListPageSize, total))
         : <LomSessionSummary>[];
+    // `pinned` is a Lom-side overlay: the engine has no pin concept.
+    final pinned = await optional?.pinnedIds() ?? <String>{};
     return {
       'items': [
         for (final s in page)
@@ -642,7 +668,7 @@ class LomRpcDispatcher {
             'id': s.id,
             'title': s.title.isEmpty ? '新的会话' : s.title,
             'updated': s.updatedMs,
-            'pinned': s.pinned,
+            'pinned': pinned.contains(s.id),
             'running': s.running,
             'model': s.model,
           },

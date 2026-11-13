@@ -144,6 +144,36 @@ class _FakeEngine implements LomEngine {
 
   @override
   Future<String> systemTimeZone() async => timezone;
+
+  // Phase 4 (optional methods).
+  final titles = <String, String>{};
+  final deletedIds = <String>{};
+  bool deletionSupported = true;
+  String network = 'wifi';
+
+  @override
+  Future<String> renameSession(String sessionId, String title) async {
+    if (!sessions.containsKey(sessionId)) {
+      throw LomEngineException('chat.session_missing');
+    }
+    titles[sessionId] = title;
+    return title;
+  }
+
+  @override
+  Future<void> deleteSession(String sessionId) async {
+    if (!deletionSupported) {
+      throw LomEngineException('remote.operation_failed');
+    }
+    if (!sessions.containsKey(sessionId)) {
+      throw LomEngineException('chat.session_missing');
+    }
+    sessions.remove(sessionId);
+    deletedIds.add(sessionId);
+  }
+
+  @override
+  Future<String> deviceNetwork() async => network;
 }
 
 class _Harness {
@@ -173,6 +203,12 @@ class _Harness {
       modelConfigs: LomModelConfigStore(store),
       receipts: receipts,
       engine: engine,
+      optional: LomOptionalMethods(
+        engine: engine,
+        pins: LomPinStore(store),
+        deviceNames: LomDeviceNameStore(store),
+        now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
+      ),
       now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
       cancelWait: const Duration(milliseconds: 100),
     );
@@ -759,6 +795,158 @@ void main() {
       );
       expect(await h.dispatcher.recoverInterrupted(), ['s1']);
       expect((await h.receipts.sessionState('s1'))?.status, 'interrupted');
+    });
+  });
+
+  group('Phase 4: chat.rename / chat.pin / chat.delete', () {
+    test('rename saves the trimmed title, rejects bad titles', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s1'] = _FakeSession();
+      final (status, payload, _) = await h.reply(
+        await h.call('chat.rename', {
+          'session_id': 's1',
+          'title': '  新标题  ',
+        }),
+      );
+      expect(status, 'ok');
+      expect(payload, {'status': 'saved', 'session_id': 's1'});
+      expect(h.engine.titles['s1'], '新标题');
+
+      final (_, _, errorEmpty) = await h.reply(
+        await h.call('chat.rename', {'session_id': 's1', 'title': '   '}),
+      );
+      expect(errorEmpty, 'chat.invalid_title');
+      final (_, _, errorMissing) = await h.reply(
+        await h.call('chat.rename', {
+          'session_id': 'nope',
+          'title': 'x',
+        }),
+      );
+      expect(errorMissing, 'chat.session_missing');
+    });
+
+    test('pin is a Lom-side overlay shown by chat.list', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s1'] = _FakeSession();
+      h.engine.summaries = [
+        const LomSessionSummary(
+          id: 's1',
+          title: 't',
+          updatedMs: 1,
+          pinned: false,
+          running: false,
+          model: '',
+        ),
+      ];
+      final (_, listBefore, _) =
+          await h.reply(await h.call('chat.list', {'offset': 0}));
+      expect((listBefore['items'] as List).first['pinned'], false);
+      final (status, _, _) = await h.reply(
+        await h.call('chat.pin', {'session_id': 's1', 'pinned': true}),
+      );
+      expect(status, 'ok');
+      final (_, listAfter, _) =
+          await h.reply(await h.call('chat.list', {'offset': 0}));
+      expect((listAfter['items'] as List).first['pinned'], true);
+      // Unpin, and a non-boolean `pinned` is a protocol failure.
+      await h.reply(
+        await h.call('chat.pin', {'session_id': 's1', 'pinned': false}),
+      );
+      final (_, listUnpinned, _) =
+          await h.reply(await h.call('chat.list', {'offset': 0}));
+      expect((listUnpinned['items'] as List).first['pinned'], false);
+      final (_, _, error) = await h.reply(
+        await h.call('chat.pin', {'session_id': 's1', 'pinned': 'true'}),
+      );
+      expect(error, 'remote.operation_failed');
+    });
+
+    test('delete refuses a running session, deletes, missing is deleted',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final running = _FakeSession()..running = true;
+      h.engine.sessions['s-run'] = running;
+      h.engine.sessions['s-idle'] = _FakeSession();
+      final (_, _, busyError) = await h.reply(
+        await h.call('chat.delete', {'session_id': 's-run'}),
+      );
+      expect(busyError, 'chat.busy');
+      expect(h.engine.sessions.containsKey('s-run'), true);
+      final (status, payload, _) = await h.reply(
+        await h.call('chat.delete', {'session_id': 's-idle'}),
+      );
+      expect(status, 'ok');
+      expect(payload, {'status': 'deleted'});
+      expect(h.engine.deletedIds, contains('s-idle'));
+      final (goneStatus, _, _) = await h.reply(
+        await h.call('chat.delete', {'session_id': 's-gone'}),
+      );
+      expect(goneStatus, 'ok');
+    });
+
+    test('delete on a host without deletion support fails, not faked',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s1'] = _FakeSession();
+      h.engine.deletionSupported = false;
+      final (status, _, error) = await h.reply(
+        await h.call('chat.delete', {'session_id': 's1'}),
+      );
+      expect(status, 'error');
+      expect(error, 'remote.operation_failed');
+      expect(h.engine.sessions.containsKey('s1'), true);
+    });
+  });
+
+  group('Phase 4: device.status / device.rename', () {
+    test('status reports network, battery is empty (no source)', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.network = 'cellular';
+      final (status, payload, _) =
+          await h.reply(await h.call('device.status', {}));
+      expect(status, 'ok');
+      expect(payload['battery'], '');
+      expect(payload['network'], 'cellular');
+      expect(payload['sampled_at'], '1767222000000');
+    });
+
+    test('rename echoes the name verbatim, rejects empty names', () async {
+      final h = _Harness();
+      await h.init();
+      const name = '我的手机';
+      final (status, payload, _) = await h.reply(
+        await h.call('device.rename', {'name': name}),
+      );
+      expect(status, 'ok');
+      expect(payload, {'name': name});
+      final (_, _, error) = await h.reply(
+        await h.call('device.rename', {'name': ''}),
+      );
+      expect(error, 'remote.operation_failed');
+    });
+
+    test('capabilities lists the Phase 4 methods once wired', () async {
+      final h = _Harness();
+      await h.init();
+      final (_, payload, _) =
+          await h.reply(await h.call('device.capabilities', {}));
+      final methods = (payload['methods'] as List).cast<String>();
+      for (final m in [
+        'chat.rename',
+        'chat.pin',
+        'chat.delete',
+        'device.status',
+        'device.rename',
+      ]) {
+        expect(methods, contains(m));
+      }
+      expect(methods, isNot(contains('screen.capture')));
+      expect(methods, isNot(contains('subagent.list')));
     });
   });
 }

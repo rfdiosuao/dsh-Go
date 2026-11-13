@@ -1,4 +1,4 @@
-/// Lom phone-access client library (Phase 0–3).
+/// Lom phone-access client library (Phase 0–4).
 ///
 /// Pure Dart (except `dsh_engine.dart`, which adapts the real engine and
 /// is imported directly where needed): no Flutter imports, so it can be
@@ -14,9 +14,12 @@ export 'envelope.dart';
 export 'identity.dart';
 export 'identity_store.dart';
 export 'io_adapters.dart';
+export 'json_doc.dart';
+export 'optional_methods.dart';
 export 'pairing_api.dart';
 export 'pairing_flow.dart';
 export 'pairing_link.dart';
+export 'phase4_store.dart';
 export 'relay_client.dart';
 export 'rpc_dispatcher.dart';
 export 'rpc_errors.dart';
