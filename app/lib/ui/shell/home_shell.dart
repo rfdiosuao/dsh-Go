@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../links/app_links.dart';
+import '../../links/lom_links.dart';
 import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/adaptive_layout_state.dart';
@@ -355,6 +356,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
                       SystemEntryHost(onReveal: _revealChat),
                       // Forum links (sign-in return, topics): registers them with the router.
                       const ForumLinkHost(),
+                      // Lom pairing links (lom://pair): registers them with the router.
+                      const LomLinkHost(),
                       // DS Bot: keeps its feed and notifications alive with the shell.
                       const BotAlertsHost(),
                       ExcludeSemantics(

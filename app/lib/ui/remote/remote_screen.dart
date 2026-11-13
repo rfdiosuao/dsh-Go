@@ -15,6 +15,7 @@ import '../common/app_dialog.dart';
 import '../common/ask_ai.dart';
 import '../common/overview_card.dart';
 import '../common/status_chip.dart';
+import '../lom/lom_pairing_page.dart';
 import '../settings/settings_widgets.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
@@ -472,6 +473,15 @@ class _RelaySection extends ConsumerWidget {
             title: l10n.remotePairAddComputer,
             onTap: () => Navigator.of(context).push(RemotePairingPage.route()),
           ),
+        // Lom: pair this phone with a Lom desktop (lom://pair). Independent
+        // of the DSH Remote server above — no server support gate.
+        SettingsTile(
+          icon: AppIcons.qrCode,
+          tinted: false,
+          title: l10n.lomPairEntry,
+          subtitle: l10n.lomPairEntryHint,
+          onTap: () => Navigator.of(context).push(LomPairingPage.route()),
+        ),
       ],
     );
   }

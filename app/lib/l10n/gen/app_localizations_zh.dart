@@ -9155,6 +9155,104 @@ class L10nZh extends L10n {
   String get localEnvSignInInstallFirst => '安装后即可登录';
 
   @override
+  String get lomPairAccount => '账号';
+
+  @override
+  String get lomPairCodeEntry => '改用配对码';
+
+  @override
+  String get lomPairCodeHint => '配对码显示在电脑上，例如 AB3D-9XK2。';
+
+  @override
+  String get lomPairCodeTitle => '输入 8 位配对码';
+
+  @override
+  String get lomPairConfirm => '确认连接';
+
+  @override
+  String get lomPairConfirmTitle => '要连接这台电脑吗？';
+
+  @override
+  String lomPairConnected(String name) {
+    return '已连接 $name';
+  }
+
+  @override
+  String get lomPairDesktop => '电脑';
+
+  @override
+  String get lomPairEntry => '连接 Lom';
+
+  @override
+  String get lomPairEntryHint => '扫电脑上 Lom 显示的二维码，手机保持在线后 Lom 才能派活。';
+
+  @override
+  String get lomPairErrAlreadyPaired => '这台手机已配对，要扫新的码请先解除配对。';
+
+  @override
+  String get lomPairErrCodeInvalid => '配对码不正确';
+
+  @override
+  String get lomPairErrDesktopTimeout => '电脑迟迟没有确认，请重新扫码。';
+
+  @override
+  String get lomPairErrExpired => '配对码已过期，请在电脑上刷新。';
+
+  @override
+  String get lomPairErrFailed => '配对未完成，请重新扫码。';
+
+  @override
+  String get lomPairErrInvalidLink => '这不是有效的 Lom 配对码';
+
+  @override
+  String get lomPairErrKeyMismatch => '配对信息不一致，请重新扫码。';
+
+  @override
+  String get lomPairErrNetwork => '无法连接 Lom 服务，请检查网络。';
+
+  @override
+  String get lomPairErrStoreFailed => '保存配对失败，请重试。';
+
+  @override
+  String get lomPairFailedTitle => '连接失败';
+
+  @override
+  String get lomPairReconnecting => '正在重连…';
+
+  @override
+  String get lomPairRevoked => '这台手机已解除配对，请重新扫码连接。';
+
+  @override
+  String get lomPairSasHint => '确认前请核对电脑上显示的确认码与下面的一致。';
+
+  @override
+  String get lomPairSasTitle => '核对确认码';
+
+  @override
+  String get lomPairScanAgain => '重新扫码';
+
+  @override
+  String get lomPairScanHint => '对准电脑上 Lom 显示的配对二维码';
+
+  @override
+  String get lomPairSubtitle => '扫 Lom 桌面端显示的二维码，把这台手机连上 Lom。';
+
+  @override
+  String get lomPairTitle => '连接 Lom';
+
+  @override
+  String get lomPairUnpair => '解除配对';
+
+  @override
+  String get lomPairUnpairBody => '解除后 Lom 不再向这台手机派活，会话、技能和记忆保留在本机。';
+
+  @override
+  String get lomPairUnpairTitle => '解除这台手机的配对？';
+
+  @override
+  String get lomPairWaitingDesktop => '正在等待电脑核对…';
+
+  @override
   String get marketSectionOfficial => '官方';
 
   @override

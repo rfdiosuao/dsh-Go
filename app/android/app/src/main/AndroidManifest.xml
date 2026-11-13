@@ -171,6 +171,15 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="dshgo" />
             </intent-filter>
+            <!-- Lom pairing QR: lom://pair?v=1&h=…&p=…&t=…&k=…&f=… — handed to
+                 MainActivity's task the same way; the Dart side validates the
+                 link and still asks the user to confirm (links/LomLinkHost). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lom" android:host="pair" />
+            </intent-filter>
             <!-- Opened from a file manager / chat app. (Shared ones come through ShareActivity:
                  one share target, not two.) -->
             <intent-filter>
@@ -264,6 +273,17 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Shows the user's floating assistant pet while their remote agent session runs" />
+        </service>
+
+        <!-- Lom relay: keeps the Lom pairing/relay connection alive while the app is
+             backgrounded, so the paired Lom desktop can reach this phone (lom/LomRelayService.kt). -->
+        <service
+            android:name=".lom.LomRelayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the Lom desktop relay connection alive so the paired computer can send tasks to this phone" />
         </service>
 
         <!-- 手机操控: reads and drives the main screen, owns the status bar / confirm overlay (phone/a11y). -->

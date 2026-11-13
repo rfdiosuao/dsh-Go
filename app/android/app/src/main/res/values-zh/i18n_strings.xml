@@ -125,6 +125,9 @@
     <string name="pet_settings">宠物设置</string>
     <string name="pet_channel">悬浮宠物</string>
     <string name="pet_running">悬浮宠物已开启</string>
+    <!-- lom -->
+    <string name="lom_channel">Lom 中转</string>
+    <string name="lom_running">已连接 Lom，正在为你的电脑保持在线</string>
     <string name="pet_window_title">DSH 宠物</string>
     <string name="pet_label">宠物</string>
     <string name="pet_open_channel">从宠物打开</string>

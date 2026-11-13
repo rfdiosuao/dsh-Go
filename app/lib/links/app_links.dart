@@ -274,7 +274,7 @@ class LinkRouter {
 
   LinkHandler? _handlerFor(Uri uri) {
     switch (uri.scheme.toLowerCase()) {
-      case appLinkScheme || 'https' || 'http':
+      case appLinkScheme || 'lom' || 'https' || 'http':
         for (final route in _routes) {
           if (route.matches(uri)) return route.handle;
         }
@@ -290,7 +290,7 @@ class LinkRouter {
   }
 
   static bool _canWait(Uri uri) => switch (uri.scheme.toLowerCase()) {
-    appLinkScheme || 'https' || 'http' || 'file' => true,
+    appLinkScheme || 'lom' || 'https' || 'http' || 'file' => true,
     _ => false,
   };
 

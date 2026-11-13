@@ -9658,6 +9658,106 @@ class L10nEn extends L10n {
   String get localEnvSignInInstallFirst => 'Install it to sign in';
 
   @override
+  String get lomPairAccount => 'Account';
+
+  @override
+  String get lomPairCodeEntry => 'Enter the pairing code instead';
+
+  @override
+  String get lomPairCodeHint => 'The code is shown on your computer, like AB3D-9XK2.';
+
+  @override
+  String get lomPairCodeTitle => 'Enter the 8-digit pairing code';
+
+  @override
+  String get lomPairConfirm => 'Confirm connection';
+
+  @override
+  String get lomPairConfirmTitle => 'Connect to this computer?';
+
+  @override
+  String lomPairConnected(String name) {
+    return 'Connected to $name';
+  }
+
+  @override
+  String get lomPairDesktop => 'Computer';
+
+  @override
+  String get lomPairEntry => 'Connect to Lom';
+
+  @override
+  String get lomPairEntryHint =>
+      'Scan the QR code in Lom on your computer. The phone stays online so Lom can send it tasks.';
+
+  @override
+  String get lomPairErrAlreadyPaired => 'This phone is already paired. Unpair it first to scan a new code.';
+
+  @override
+  String get lomPairErrCodeInvalid => 'That pairing code isn\'t right';
+
+  @override
+  String get lomPairErrDesktopTimeout => 'The computer didn\'t confirm in time. Scan again.';
+
+  @override
+  String get lomPairErrExpired => 'The pairing code expired. Show a new one on the computer.';
+
+  @override
+  String get lomPairErrFailed => 'Pairing didn\'t finish. Scan again.';
+
+  @override
+  String get lomPairErrInvalidLink => 'That isn\'t a Lom pairing code';
+
+  @override
+  String get lomPairErrKeyMismatch => 'The pairing info doesn\'t match. Scan the code again.';
+
+  @override
+  String get lomPairErrNetwork => 'Can\'t reach Lom. Check your network and try again.';
+
+  @override
+  String get lomPairErrStoreFailed => 'Couldn\'t save the pairing. Try again.';
+
+  @override
+  String get lomPairFailedTitle => 'Couldn\'t connect';
+
+  @override
+  String get lomPairReconnecting => 'Reconnecting…';
+
+  @override
+  String get lomPairRevoked => 'This phone was unpaired. Scan again to connect.';
+
+  @override
+  String get lomPairSasHint => 'Make sure the code on your computer matches the one below before you confirm.';
+
+  @override
+  String get lomPairSasTitle => 'Check the confirmation code';
+
+  @override
+  String get lomPairScanAgain => 'Scan again';
+
+  @override
+  String get lomPairScanHint => 'Point the camera at the Lom pairing code on your computer';
+
+  @override
+  String get lomPairSubtitle => 'Scan the QR code Lom shows on your computer to connect this phone.';
+
+  @override
+  String get lomPairTitle => 'Connect to Lom';
+
+  @override
+  String get lomPairUnpair => 'Unpair';
+
+  @override
+  String get lomPairUnpairBody =>
+      'Lom will stop sending tasks to this phone. Your chats, skills and memory stay on this phone.';
+
+  @override
+  String get lomPairUnpairTitle => 'Unpair this phone?';
+
+  @override
+  String get lomPairWaitingDesktop => 'Waiting for the computer to verify…';
+
+  @override
   String get marketSectionOfficial => 'Official';
 
   @override

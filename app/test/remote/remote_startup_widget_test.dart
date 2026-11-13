@@ -46,8 +46,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     final c = ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
     final tile = find.byKey(const ValueKey('remote-auto-connect'));
+    // Scroll the tile into view first (the list builds lazily: the
+    // switch below does not exist until its section is on screen), then
+    // bring the switch itself fully into view — the tile can be (partly)
+    // visible while the switch is still below the fold.
     await tester.scrollUntilVisible(tile, 300);
     final toggle = find.descendant(of: tile, matching: find.byType(Switch));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
     expect(tester.widget<Switch>(toggle).value, isTrue);
     await tester.tap(toggle);
     await tester.pump();
