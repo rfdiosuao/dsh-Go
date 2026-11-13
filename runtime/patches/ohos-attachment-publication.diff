@@ -47,7 +47,7 @@
  //#region lib/types/compression-limiter.js
  /** Instance-owned concurrency bound for native image transformations. */
  /**
-@@ -477,7 +517,8 @@
+@@ -486,7 +526,8 @@
  	try {
  		await ensureDurableDirectory(parent, await ensureDurableHome(dirname(dirname(resolve(root)))));
  		try {
@@ -55,9 +55,9 @@
 +			if (process.platform === "openharmony") await publishOhosExclusive(source, target);
 +			else await link(source, target);
  		} catch (error) {
- 			/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
- 			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-@@ -538,7 +579,8 @@
+ 			if (error?.code === "EACCES" || error?.code === "EPERM") {
+ 				const staged = await stageImmutableObject(root, (async function* () {
+@@ -560,7 +601,8 @@
  	try {
  		await ensureDurableDirectory(parent, staged.boundary);
  		try {
@@ -65,5 +65,5 @@
 +			if (process.platform === "openharmony") await publishOhosExclusive(staged.path, target);
 +			else await link(staged.path, target);
  		} catch (error) {
- 			/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
- 			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+ 			if (!(error instanceof Error && ["EEXIST", "EACCES", "EPERM"].includes(error.code))) throw error;
+ 			try {

@@ -59,7 +59,7 @@ import '../phone/support.dart' show FixedActiveHost, FixedHosts;
 import '../safe_mode/support.dart' show FakeBridge, failedAt;
 import '../shell/golden_harness.dart';
 
-const _pages = {'page:phone', 'page:phoneAppRules', 'page:phoneDnd', 'page:phoneUnlocks'};
+const _pages = {'page:phone', 'page:phoneAppRules', 'page:phoneAndroidShell', 'page:phoneDnd', 'page:phoneUnlocks'};
 const _rows = {
   'phone-a11y-restore',
   'phone-confirm',
@@ -71,6 +71,8 @@ const _rows = {
   'icon-shortcut',
   'pet-outside-app',
   'pet-display-when',
+  'pet-overlay-shows',
+  'pet-overlay-framing',
   'auto-safe',
 };
 

@@ -6,6 +6,7 @@ import { FilePickerRuntime } from "./file-picker-runtime.js";
 import { randomBytes } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, sep } from "node:path";
+import { performance } from "node:perf_hooks";
 import { normalize as normalizeEffects, splitPending } from "./effects.js";
 import { ID, NEGOTIATED_PLACEMENTS, PKG, PROTOCOL, SEMVER } from "./limits.js";
 import { insidePackage, panelTitle } from "./manifest.js";
@@ -62,7 +63,11 @@ function parseCaps(sp) {
     components,
     features,
     key: JSON.stringify([versions, app, locale.toLowerCase(), ...(features.length ? [features] : []), ...(placements.length ? [placements] : [])]),
-    forPlugin: () => ({ protocol: PROTOCOL, app, locale, surfaces: [...surfaces], components: [...components], ...(features.length ? { features: [...features] } : {}) }),
+    // Omitted lists preserve the SDK's v1 defaults; explicit empty lists stay empty.
+    forPlugin: () => ({ protocol: PROTOCOL, app, locale,
+      ...(sp.has("surfaces") ? { surfaces: [...surfaces] } : {}),
+      ...(sp.has("components") ? { components: [...components] } : {}),
+      ...(features.length ? { features: [...features] } : {}) }),
   };
 }
 
@@ -90,6 +95,7 @@ function scopeFromQuery(sp) {
 
 function readJsonBody(req, limit) {
   return new Promise((resolve, reject) => {
+    if (req.aborted || req.destroyed) return reject(new HttpError(400, "bad-request", "request body was interrupted"));
     const chunks = [];
     let size = 0;
     let over = false;
@@ -458,13 +464,14 @@ export function createNativeRoutes(core) {
     if (rec?.parsed.assetsDir === undefined) fail(404, "not-found", "no such asset");
     const type = IMAGE_TYPES[extname(tail[tail.length - 1]).toLowerCase()];
     if (type === undefined) fail(404, "not-found", "no such asset");
-    const file = insidePackage(rec.parsed.assetsDir, tail.join("/"));
+    let file = insidePackage(rec.parsed.assetsDir, tail.join("/"));
     let st;
     try {
       if (file === undefined) throw new Error();
       const [real, realDir] = await Promise.all([realpath(file), realpath(rec.parsed.assetsDir)]);
       if (!real.startsWith(realDir + sep)) throw new Error();
-      st = await stat(real);
+      file = real;
+      st = await stat(file);
       if (!st.isFile() || st.size > L.assetBytes) throw new Error();
     } catch {
       fail(404, "not-found", "no such asset");
@@ -492,7 +499,8 @@ export function createNativeRoutes(core) {
   function upgrade(req, socket, head) {
     const ws = acceptUpgrade(req, socket, head, { maxMessage: L.streamInboundFrameBytes });
     if (ws === undefined) return;
-    const conn = { id: randomBytes(12).toString("base64url"), ws, helloed: false, subs: new Map(), pendings: new Set(), lastRecv: Date.now(), openedAt: Date.now() };
+    const openedAt = performance.now();
+    const conn = { id: randomBytes(12).toString("base64url"), ws, helloed: false, subs: new Map(), pendings: new Set(), lastRecv: openedAt, openedAt };
     conn.send = (msg) => {
       if (ws.closed) return;
       if (ws.bufferedAmount > L.streamBacklogBytes) {
@@ -508,13 +516,13 @@ export function createNativeRoutes(core) {
     conns.add(conn);
     connById.set(conn.id, conn);
     const hb = setInterval(() => {
-      const now = Date.now();
+      const now = performance.now();
       if (now - conn.lastRecv > L.idleTimeoutSeconds * 1000) return ws.close(1001, "idle");
       if (!conn.helloed && now - conn.openedAt > 10000) return ws.close(1008, "hello expected");
       ws.ping();
     }, L.heartbeatSeconds * 1000);
     hb.unref?.();
-    ws.on("activity", () => { conn.lastRecv = Date.now(); });
+    ws.on("activity", () => { conn.lastRecv = performance.now(); });
     ws.on("close", () => {
       clearInterval(hb);
       conns.delete(conn);

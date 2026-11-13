@@ -22,10 +22,10 @@
      } finally { await rm(temporary, { force: true }); }
      await syncMarkerDirectories(id);
    };
-@@ -107,6 +119,12 @@
+@@ -195,6 +207,12 @@
    };
    return {
-     version: 1, pending, deleted, assertAdmit, assertParent, withMutation: mutation,
+     version: 2, pending, deleted, assertAdmit, assertParent, withMutation: mutation,
 +    get supported() {
 +      if (process.platform !== 'openharmony') return true;
 +      const publication = globalThis[Symbol.for('dsh.go.ohos.publication')];
@@ -37,7 +37,7 @@
      async acquireWriter(id, dir, header) {
 --- a/runtime/bridge/dsh-go-bridge/lib/session-deletion.js
 +++ b/runtime/bridge/dsh-go-bridge/lib/session-deletion.js
-@@ -32,7 +32,12 @@
+@@ -50,7 +50,12 @@
        if (path !== `${ROOT}/deletion` && path !== `${ROOT}/delete`) return false;
        if (path === `${ROOT}/deletion`) {
          if (req.method !== "GET") send(res, 405, errorBody("unavailable", "Use GET."));

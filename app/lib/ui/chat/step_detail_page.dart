@@ -16,6 +16,7 @@ import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'diff_page.dart';
+import 'output_page.dart';
 import 'render/ansi_text.dart';
 import 'render/code_block.dart';
 import 'render/diff_view.dart';
@@ -201,7 +202,14 @@ class _ToolStep extends StatelessWidget {
     final args = tool.arguments.trim();
     if (args.isNotEmpty && args != '{}') {
       final pretty = prettyJson(tool.arguments);
-      out.add(CodeSection(title: l10n.activityStepArguments, copyText: pretty, child: _wellText(context, pretty)));
+      out.add(
+        CodeSection(
+          title: l10n.activityStepArguments,
+          copyText: pretty,
+          action: _viewAll(context, l10n.activityStepArguments, pretty),
+          child: _wellText(context, pretty),
+        ),
+      );
     }
     if (tool.status == ToolStatus.succeeded) {
       if (view.diff case final lines? when lines.isNotEmpty) {
@@ -247,22 +255,22 @@ class _ToolStep extends StatelessWidget {
     }
     final result = tool.resultText.trimRight();
     if (result.isNotEmpty) {
+      // A phone tool's reported outcome that isn't a fault (HarmonyOS) isn't an error.
+      final fault = view.phoneResult?.isFault ?? true;
+      final title = tool.status == ToolStatus.failed && fault
+          ? l10n.activityStepError
+          : view.isTerminal
+          ? l10n.activityOutput
+          : l10n.activityStepResult;
+      final color = tool.status == ToolStatus.failed && !view.sandboxBlocked && fault
+          ? DshColors.of(context).danger
+          : null;
       out.add(
         CodeSection(
-          title: tool.status == ToolStatus.failed && (view.phoneResult?.isFault ?? true)
-              ? l10n.activityStepError
-              : view.isTerminal
-              ? l10n.activityOutput
-              : l10n.activityStepResult,
+          title: title,
           copyText: result,
-          child: _wellText(
-            context,
-            result,
-            ansi: true,
-            color: tool.status == ToolStatus.failed && !view.sandboxBlocked && (view.phoneResult?.isFault ?? true)
-                ? DshColors.of(context).danger
-                : null,
-          ),
+          action: _viewAll(context, title, result, ansi: true, color: color),
+          child: _wellText(context, result, ansi: true, color: color),
         ),
       );
     } else if (tool.failure case final failure?) {
@@ -550,6 +558,15 @@ Widget _mono(BuildContext context, String text) => SelectableText(
     height: 14 * 1.55 / 13,
   ),
 );
+
+/// 被 [_wellText] 截断的一段,在段头给一个进全文页的入口;没截断就没有。
+(String, VoidCallback)? _viewAll(BuildContext context, String title, String text, {bool ansi = false, Color? color}) {
+  if (text.length <= _maxShownChars) return null;
+  return (
+    context.l10n.chatOutputViewAll,
+    () => Navigator.of(context).push(OutputPage.route(title: title, text: text, ansi: ansi, color: color)),
+  );
+}
 
 Widget _wellText(BuildContext context, String text, {bool ansi = false, Color? color}) {
   final dsh = DshColors.of(context);

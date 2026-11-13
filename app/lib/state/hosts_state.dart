@@ -179,6 +179,7 @@ class HostsController extends Notifier<HostsState> {
       }
     }
 
+    await put(SshSecrets.attachTokenKey(id), config.dshMode == SshDshMode.attachOnly ? secrets.attachToken?.trim() : null);
     if (config.auth == SshAuthMethod.password) {
       await put(SshSecrets.passwordKey(id), secrets.password);
       await _secrets.delete(SshSecrets.privateKeyKey(id));
@@ -203,6 +204,7 @@ class HostsController extends Notifier<HostsState> {
       password: await get(SshSecrets.passwordKey(id)),
       privateKey: await get(SshSecrets.privateKeyKey(id)),
       passphrase: await get(SshSecrets.passphraseKey(id)),
+      attachToken: await get(SshSecrets.attachTokenKey(id)),
     );
   }
 
@@ -210,7 +212,7 @@ class HostsController extends Notifier<HostsState> {
   Future<void> removeSsh(String id) async {
     await _loaded;
     await _persist([...state.ssh.where((h) => h.id != id)]);
-    for (final key in [SshSecrets.passwordKey(id), SshSecrets.privateKeyKey(id), SshSecrets.passphraseKey(id)]) {
+    for (final key in [SshSecrets.passwordKey(id), SshSecrets.privateKeyKey(id), SshSecrets.passphraseKey(id), SshSecrets.attachTokenKey(id)]) {
       try {
         await _secrets.delete(key);
       } catch (_) {}
@@ -369,7 +371,7 @@ final activeHostProvider = NotifierProvider<ActiveHostController, HostRef>(Activ
 // ── DSH Remote (relay) account ───────────────────────────────────────────────
 
 /// The DSH Remote server: null for the hosted dsh.r2049.cn, else a
-/// self-hosted origin (an advanced option; it signs in with email + password).
+/// self-hosted origin with its own sign-in methods.
 class RelayServerController extends Notifier<String?> {
   static const prefsKey = 'remote_relay_server';
   bool _touched = false;
@@ -400,19 +402,64 @@ class RelayServerController extends Notifier<String?> {
   }
 
   /// Back to dsh.r2049.cn (each server keeps its own sign-in).
-  Future<void> useDefault() async {
-    await _set(null);
-    ref.invalidate(relayAccountProvider);
-  }
+  Future<void> useDefault() => ref.read(_relayServerActionsProvider).useDefault();
+
+  /// Switches to [server] after the person selects it or agrees to a pairing code;
+  /// each Server keeps its own sign-in. Throws [HostLinkError] when invalid.
+  Future<void> useServer(String server) => ref.read(_relayServerActionsProvider).useServer(server);
 
   /// Switches to [server] (normalized; throws [HostLinkError] when invalid)
   /// and signs in there with email + password.
+  Future<void> loginWithPassword({required String server, required String email, required String password}) =>
+      ref.read(_relayServerActionsProvider).loginWithPassword(server: server, email: email, password: password);
+}
+
+// Commands need their own Ref: the backend watches the server state, so the
+// server notifier cannot read/invalidate its downstream providers. This provider
+// does not watch the selection and remains alive when a login sheet closes.
+final _relayServerActionsProvider = Provider<_RelayServerActions>(_RelayServerActions.new);
+
+class _RelayServerActions {
+  _RelayServerActions(this.ref);
+
+  final Ref ref;
+  int _operation = 0;
+
+  bool _owns(int operation, String? selection) =>
+      ref.mounted && operation == _operation && ref.read(relayServerProvider) == selection;
+
+  Future<void> useDefault() async {
+    final operation = ++_operation;
+    await ref.read(relayServerProvider.notifier)._set(null);
+    if (_owns(operation, null)) ref.invalidate(relayAccountProvider);
+  }
+
+  Future<void> useServer(String server) async {
+    final origin = DshRemoteRelayBackend.normalizeServer(server);
+    final selection = origin == defaultRelayServer ? null : origin;
+    final operation = ++_operation;
+    await ref.read(relayServerProvider.notifier)._set(selection);
+    if (_owns(operation, selection)) ref.invalidate(relayAccountProvider);
+  }
+
   Future<void> loginWithPassword({required String server, required String email, required String password}) async {
     ref.read(readListCredentialEpochProvider.notifier).advance();
     final origin = DshRemoteRelayBackend.normalizeServer(server);
-    await _set(origin == defaultRelayServer ? null : origin);
-    await ref.read(relayBackendProvider).loginWithPassword(email.trim(), password);
-    ref.invalidate(relayAccountProvider);
+    final selection = origin == defaultRelayServer ? null : origin;
+    final operation = ++_operation;
+    await ref.read(relayServerProvider.notifier)._set(selection);
+    // Persistence may yield to another server action, including A -> B -> A.
+    // Never resolve a retired request against the newly selected backend.
+    if (!_owns(operation, selection)) {
+      throw HostLinkError(HostLinkErrorKind.other, appL10n.remoteSignInCancelled);
+    }
+    final backend = ref.read(relayBackendProvider);
+    await backend.loginWithPassword(email.trim(), password);
+    // The captured account may have completed successfully after selection
+    // changed. Keep that result, but do not rebuild/cancel its successor login.
+    if (_owns(operation, selection) && identical(backend, ref.read(relayBackendProvider))) {
+      ref.invalidate(relayAccountProvider);
+    }
   }
 }
 

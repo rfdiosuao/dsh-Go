@@ -3,7 +3,7 @@
 
 import 'dart:async';
 
-import 'package:dsh_app/clipboard/field_paste.dart';
+import 'package:dsh_app/ui/common/field_paste.dart';
 import 'package:dsh_app/state/android_features.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

@@ -197,18 +197,18 @@ object SafeMode {
         },
     ): List<Hazard> {
         val out = ArrayList<Hazard>()
-        readIfFile(guestFile(rootfs, MOVABLE[0]))?.let { text ->
+        readIfFile(rootfs, MOVABLE[0])?.let { text ->
             if (!isTrivialPatch(text)) {
                 out += Hazard(MOVABLE[0], "homePatch", patchDetail)
             }
         }
-        readIfFile(guestFile(rootfs, MOVABLE[1]))?.let { text ->
+        readIfFile(rootfs, MOVABLE[1])?.let { text ->
             val names = launchOnlyNames(text, home = true)
             if (names.isNotEmpty()) {
                 out += Hazard(MOVABLE[1], "homeEnv", envDetail(names))
             }
         }
-        readIfFile(guestFile(rootfs, MOVABLE[2]))?.let { text ->
+        readIfFile(rootfs, MOVABLE[2])?.let { text ->
             val names = launchOnlyNames(text, home = false)
             if (names.isNotEmpty()) {
                 out += Hazard(MOVABLE[2], "cwdEnv", envDetail(names))
@@ -217,19 +217,24 @@ object SafeMode {
         return out
     }
 
-    /** Renames each listed file to `<name>.off-<stamp>`; returns `from → to` guest paths of what moved. */
-    fun moveAside(rootfs: File, guestPaths: List<String>, stamp: String): List<Pair<String, String>> {
+    data class MoveAsideResult(val moved: List<Pair<String, String>>, val failure: IOException? = null)
+
+    /** Stops at a failed rename; earlier successful moves remain available for the repair briefing. */
+    fun moveAside(rootfs: File, guestPaths: List<String>, stamp: String): MoveAsideResult {
         val moved = ArrayList<Pair<String, String>>()
         for (path in guestPaths.distinct()) {
             if (path !in MOVABLE) continue
             val file = guestFile(rootfs, path)
-            if (!file.isFile) continue
+            if (readableFile(rootfs, path) == null) continue
             var target = File(file.parentFile, "${file.name}.off-$stamp")
             var n = 1
             while (target.exists()) target = File(file.parentFile, "${file.name}.off-$stamp-${n++}")
-            if (file.renameTo(target)) moved += path to (path.substringBeforeLast('/') + "/" + target.name)
+            if (!file.renameTo(target)) {
+                return MoveAsideResult(moved, IOException("could not move $path aside; ${moved.size} file(s) already moved"))
+            }
+            moved += path to (path.substringBeforeLast('/') + "/" + target.name)
         }
-        return moved
+        return MoveAsideResult(moved)
     }
 
     // ── Guest files ─────────────────────────────────────────────────────────────────
@@ -462,15 +467,26 @@ object SafeMode {
 
     fun guestFile(rootfs: File, guestPath: String): File = File(rootfs, guestPath.removePrefix("/"))
 
-    private fun readIfFile(file: File): String? = try {
-        if (file.isFile) file.readText() else null
+    private fun readIfFile(rootfs: File, guestPath: String): String? = try {
+        readableFile(rootfs, guestPath)?.readText()
+    } catch (_: Exception) {
+        null
+    }
+
+    // Preflight precedes the safe launch's tawc materialization. Resolve bytes for reading;
+    // moveAside must still rename the original guest name, never its shared store object.
+    private fun readableFile(rootfs: File, guestPath: String): File? = try {
+        guestFile(rootfs, guestPath).takeIf { it.isFile }
+            ?: io.github.ccch1mneyyy.dsh_app.files.GuestFiles.resolve(rootfs, guestPath, phoneRoot = PhoneStorage.GUEST_PATH)
     } catch (_: Exception) {
         null
     }
 
     /** A real directory at [dir]: a symlink or file planted there is removed first (never followed). */
     private fun realDir(dir: File): File {
-        if (Files.isSymbolicLink(dir.toPath()) || (dir.exists() && !dir.isDirectory)) dir.delete()
+        if (Files.isSymbolicLink(dir.toPath()) || (dir.exists() && !dir.isDirectory)) {
+            if (!dir.delete()) throw IOException("could not remove ${dir.path}")
+        }
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create ${dir.path}")
         return dir
     }
@@ -529,6 +545,7 @@ object SafeMode {
 const fs = require('fs')
 const path = require('path')
 const cp = require('child_process')
+const { randomUUID } = require('crypto')
 
 const HOME = process.env.DSH_APP_ORIGINAL_HOME || process.env.DSH_HOME || '/root/.dsh'
 const SAFE = process.env.DSH_APP_SAFE_DIR || '/var/lib/dsh-app/safe-mode'
@@ -573,32 +590,85 @@ function installedVersion (name) {
   return pkg && typeof pkg.version === 'string' ? pkg.version : null
 }
 
-// Same protocol as DSH's own writers: a `wx`-created <file>.lock holding the writer's pid,
-// taken over when that pid no longer exists; the new content lands by rename.
+// Match DSH's installation-first package lookup without requiring a package
+// to export package.json. Resolve metadata only; enabling does not boot code.
+function requireInstalledBundle (name) {
+  if (!/^(@[^/\\]+\/)?[^/\\]+$/.test(name) || name.split('/').some(function (part) { return part === '.' || part === '..' })) {
+    throw new Error('不是有效的包名：' + name)
+  }
+  const createRequire = require('module').createRequire
+  const anchors = ['/opt/dsh/node_modules/@deepseek-ai/dsh/package.json', manifestPath()]
+  for (const anchor of anchors) {
+    const paths = createRequire(anchor).resolve.paths(name) || []
+    for (const directory of paths) {
+      const file = path.join(directory, name, 'package.json')
+      try {
+        fs.statSync(file)
+      } catch (e) {
+        if (e.code === 'ENOENT' || e.code === 'ENOTDIR') continue
+        throw e
+      }
+      // A broken installation copy must not silently select a profile copy.
+      const pkg = JSON.parse(fs.readFileSync(file, 'utf8'))
+      const bundle = pkg && pkg.dsh && pkg.dsh.bundle
+      if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+        throw new Error(name + ' 的 package.json 没有有效的 dsh.bundle，不能启用')
+      }
+      // Reuse the installed runtime's read-only patch dialect (including !!js
+      // data and ordered/empty arrays). Never boot plugins or rewrite layers.
+      // Keep this import lazy: a damaged runtime must not break list/disable.
+      const boot = createRequire(anchors[0])('@deepseek-ai/dsh-app-boot')
+      for (const patch of boot.bundlePatchFiles(bundle)) {
+        boot.loadOverlayPatches('dsh-app-plugins', path.join(path.dirname(file), patch))
+      }
+      return
+    }
+  }
+  throw new Error(name + ' 在 DSH 安装和 web profile 中都无法解析，不能启用')
+}
+
+// Publish a complete pid record at <file>.lock; the other writers follow symlinks.
+// Dead-pid takeover stays the same, and new manifest content still lands by rename.
 function withLock (file, fn) {
   const lock = file + '.lock'
   const deadline = Date.now() + 5000
-  for (;;) {
-    try {
-      fs.writeFileSync(lock, process.pid + '\n', { flag: 'wx', mode: 0o600 })
-      break
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e
-      const pid = parseInt(String(readText(lock) || '').trim(), 10)
-      if (pid > 0 && !alive(pid)) {
-        fs.rmSync(lock, { force: true })
-        continue
+  const owner = path.join(path.dirname(file), '.dsh-helper-lock-' + randomUUID() + '.pid')
+  const fd = fs.openSync(owner, 'wx', 0o600)
+  let published = false
+  try {
+    try { fs.writeFileSync(fd, process.pid + '\n') } finally { fs.closeSync(fd) }
+    for (;;) {
+      try {
+        fs.symlinkSync(path.basename(owner), lock)
+        published = true
+        break
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e
+        const pid = parseInt(String(readText(lock) || '').trim(), 10)
+        if (pid > 0 && !alive(pid)) {
+          fs.rmSync(lock, { force: true })
+          continue
+        }
+        if (Date.now() > deadline) break
+        sleep(100)
       }
-      if (Date.now() > deadline) die('package.json 正被别的进程修改（锁文件 ' + lock + '），稍后再试')
-      sleep(100)
     }
+    if (published) return fn()
+  } finally {
+    // If unlink fails, keep the owner so the remaining lock is still readable.
+    if (published) fs.rmSync(lock, { force: true })
+    fs.rmSync(owner, { force: true })
   }
-  try { return fn() } finally { fs.rmSync(lock, { force: true }) }
+  die('package.json 正被别的进程修改（锁文件 ' + lock + '），稍后再试')
 }
 function writeAtomic (file, text) {
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp'
-  fs.writeFileSync(tmp, text)
-  fs.renameSync(tmp, file)
+  try {
+    fs.writeFileSync(tmp, text)
+    fs.renameSync(tmp, file)
+  } finally {
+    fs.rmSync(tmp, { force: true })
+  }
 }
 function updateBundles (change) {
   const file = manifestPath()
@@ -661,15 +731,20 @@ function disable (names) {
 
 function enable (names) {
   if (!names.length) die('用法：dsh-app-plugins enable <包名>...')
-  const deps = depsOf(readManifest())
-  for (const name of names) {
-    if (!Object.prototype.hasOwnProperty.call(deps, name) && name.indexOf(SHIPPED) !== 0) die(name + ' 没有安装在 web 里（不在 dependencies 中），不能启用')
+  let changed
+  try {
+    changed = updateBundles(function (bundles, deps) {
+      for (const name of names) {
+        if (!Object.prototype.hasOwnProperty.call(deps, name) && name.indexOf(SHIPPED) !== 0) throw new Error(name + ' 没有安装在 web 里（不在 dependencies 中），不能启用')
+        requireInstalledBundle(name)
+      }
+      const next = bundles.slice()
+      for (const name of names) if (next.indexOf(name) < 0) next.push(name)
+      return next
+    })
+  } catch (e) {
+    die(e.message)
   }
-  const changed = updateBundles(function (bundles) {
-    const next = bundles.slice()
-    for (const name of names) if (next.indexOf(name) < 0) next.push(name)
-    return next
-  })
   out(changed ? '已启用：' + names.join('、') + '。重启到正常模式后生效。' : '这些包本来就是启用的')
 }
 
@@ -808,20 +883,38 @@ function trial (args) {
     env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe']
   })
   const seconds = function (ms) { return Math.round(ms / 1000) }
-  const onData = function (chunk) {
-    for (const line of String(chunk).split('\n')) {
-      if (!line) continue
-      tail.push(redact(line))
-      if (tail.length > 60) tail.shift()
-      if (!upAt && line.indexOf('token=') >= 0) upAt = Date.now()
+  const capture = function (stream) {
+    let pending = ''
+    let line = ''
+    const saveLine = function () {
+      if (line) {
+        const text = line.length > 2000 ? line.slice(0, 2000).replace(/[\uD800-\uDBFF]$/, '') + '…' : line
+        tail.push(redact(text))
+        if (tail.length > 60) tail.shift()
+      }
+      line = ''
     }
+    stream.setEncoding('utf8')
+    stream.on('data', function (chunk) {
+      const text = pending + String(chunk)
+      if (!upAt && text.indexOf('token=') >= 0) upAt = Date.now()
+      // A pipe can split the six-byte marker anywhere; streams stay separate.
+      pending = text.slice(-5)
+      const lines = String(chunk).split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        // One extra character records truncation without retaining an unbounded line.
+        line += lines[i].slice(0, 2001 - line.length)
+        if (i + 1 < lines.length) saveLine()
+      }
+    })
+    return saveLine
   }
-  child.stdout.on('data', onData)
-  child.stderr.on('data', onData)
+  const flushOutput = [capture(child.stdout), capture(child.stderr)]
   const finish = function (code, text, showTail) {
     if (finished) return
     finished = true
     clearInterval(timer)
+    flushOutput.forEach(function (flush) { flush() })
     out(text)
     if (showTail) out(tail.slice(-40).join('\n'))
     else {

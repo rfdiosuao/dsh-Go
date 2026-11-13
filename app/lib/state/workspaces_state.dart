@@ -318,10 +318,11 @@ class WorkspacePrefsController extends Notifier<WorkspacePrefs> {
   }
 
   Future<void> _save(WorkspacePrefs next) async {
+    final key = _key;
     state = next;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, jsonEncode(next.toJson()));
+      await prefs.setString(key, jsonEncode(next.toJson()));
     } catch (_) {
       // Kept in memory for this run.
     }
@@ -507,12 +508,19 @@ Future<String?> workspaceForNewSession(Ref ref) async {
 /// Creates a conversation in [workspaceId] when one is selected, else in
 /// [cwd] (null lets the host pick). Falls back to [cwd] if the workspace was
 /// removed in the meantime.
-Future<SessionCreated> createSessionInWorkspace(DshClient client, String? workspaceId, {String? cwd}) async {
+Future<SessionCreated> createSessionInWorkspace(
+  DshClient client,
+  String? workspaceId, {
+  String? cwd,
+  void Function()? checkCurrent,
+}) async {
+  checkCurrent?.call();
   if (workspaceId == null) return client.createSession(cwd: cwd);
   try {
     return await client.createSession(workspaceId: workspaceId);
   } on DshRemoteException catch (e) {
     if (e.code != WorkspaceErrors.notFound) rethrow;
+    checkCurrent?.call();
     return client.createSession(cwd: cwd);
   }
 }

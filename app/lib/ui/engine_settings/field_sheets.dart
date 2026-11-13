@@ -6,13 +6,13 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../common/field_paste.dart';
 import 'numeric_edit_math.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../clipboard/field_paste.dart';
 import '../../l10n/l10n.dart';
 import '../../state/engine_settings_state.dart';
 import '../common/app_sheet.dart';

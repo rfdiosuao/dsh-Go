@@ -397,13 +397,23 @@ void main() {
     Widget batch({String? os}) =>
         actions((context, ref) => saveMediaItems(context, ref, 's1', const [video, video]), os: os);
 
-    testWidgets('a batch of videos: Android keeps its count', (tester) async {
+    testWidgets('a batch of videos: Android saves them to the gallery and counts files', (tester) async {
       usePhoneView(tester);
-      _Android().install(tester);
+      final android = _Android()..install(tester);
+      final gallery = <MethodCall>[];
+      const media = MethodChannel('dsh/media');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(media, (call) async {
+        gallery.add(call);
+        return 'Movies/DSH Go/${(call.arguments as Map)['name']}';
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(media, null));
       await tester.pumpWidget(batch());
       await tester.tap(find.text('go'));
       await tester.pumpAndSettle();
-      expect(find.text('已保存 2 张到相册'), findsOneWidget);
+      expect(gallery.map((c) => c.method), ['saveVideoFile', 'saveVideoFile']);
+      expect(android.calls.where((c) => c.method == 'saveToDownloads'), isEmpty);
+      expect(find.text('已保存 2 个文件到相册'), findsOneWidget);
     });
 
     testWidgets('a batch of videos: HarmonyOS says 已保存; backing out stops asking, without a failure', (tester) async {

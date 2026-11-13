@@ -26,6 +26,7 @@ import 'package:dsh_app/ui/chat/widgets/whale_tail.dart';
 import 'package:dsh_app/ui/theme/app_icons.dart';
 import 'package:dsh_app/ui/theme/theme.dart';
 import 'package:dsh_client/dsh_client.dart';
+import 'package:dsh_app/ui/chat/model_sheet.dart' show ModelChip;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -254,13 +255,13 @@ void main() {
       expect(chat.commandLines, ['/compact']);
       expect(tester.widget<TextField>(field).controller!.text, isEmpty);
 
-      // A command with input goes into the composer and shows its hint.
+      // A command with input fills the composer and closes the palette.
       await tester.enterText(field, '/权');
       await pumpFrames(tester, 3);
       await tester.tap(find.textContaining('/permission').first);
       await pumpFrames(tester, 3);
       expect(tester.widget<TextField>(field).controller!.text, '/permission ');
-      expect(find.textContaining('输入参数后发送'), findsOneWidget);
+      expect(find.byType(SlashPalette), findsNothing);
 
       await tester.enterText(field, '/permission read-only');
       await tester.tap(find.byIcon(AppIcons.send));
@@ -293,7 +294,8 @@ void main() {
       expect(harness.controllers['s1']!.sent, isEmpty);
 
       // A command that normally runs immediately must also retain the draft
-      // until the user explicitly sends it.
+      // until the user explicitly sends it. Start a fresh draft for this case.
+      controller.clear();
       controller.value = const TextEditingValue(text: '  /已有文字', selection: TextSelection.collapsed(offset: 3));
       await pumpFrames(tester, 3);
       await tester.tap(find.descendant(of: palette, matching: find.textContaining('/compact')).first);
@@ -303,6 +305,7 @@ void main() {
 
       // Completing inside a known name replaces it without duplicating its
       // unselected suffix or discarding the arguments.
+      controller.clear();
       controller.value = const TextEditingValue(
         text: '/permission read-only',
         selection: TextSelection.collapsed(offset: 4),
@@ -388,7 +391,8 @@ void main() {
         catalog: ModelCatalog.fromJson(const {'groups': <Object?>[]}),
       );
       await pumpChat(tester, harness);
-      expect(find.text('选择模型'), findsOneWidget);
+      // The new chat's header chip (and the composer's, once typing) asks for one.
+      expect(find.descendant(of: find.byType(ModelChip), matching: find.text('选择模型')), findsOneWidget);
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));

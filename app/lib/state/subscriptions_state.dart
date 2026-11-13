@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
 import 'connection_state.dart';
+import 'engine_error_text.dart';
 import 'models_state.dart';
 import 'providers_state.dart';
 import 'read_list_epoch.dart';
@@ -23,7 +24,13 @@ String subscriptionLabel(Subscription s) => switch (s) {
 String describeLoginError(Object error) {
   if (error is DshRemoteException) {
     final code = error.code;
-    if (code.startsWith('gateway/') && code != 'gateway/internal') return appL10n.stateSubscriptionUnsupported;
+    if (code == 'gateway/method-not-found' || code == 'gateway/not-found') {
+      return appL10n.stateSubscriptionUnsupported;
+    }
+    if (error.isGatewayError) {
+      final reason = engineErrorReason(error);
+      if (reason != null) return reason;
+    }
     if (error.message.contains('could not reach') || error.message.contains('fetch failed')) {
       return appL10n.stateSubscriptionUnreachable;
     }
@@ -110,6 +117,19 @@ final subscriptionsProvider = FutureProvider.autoDispose<SubscriptionsSnapshot?>
   } catch (_) {
     return const SubscriptionsSnapshot(available: false);
   }
+});
+
+/// Quota belongs to the active host and is fetched only while the sheet is open.
+final subscriptionUsageProvider = FutureProvider.autoDispose.family<SubscriptionUsage?, Subscription>((
+  ref,
+  subscription,
+) async {
+  final active = ref.watch(activeConnectionProvider);
+  // A reconnect may retain a disposed client in AsyncValue.value.
+  final connection = active.isLoading || active.hasError ? null : active.value;
+  if (connection == null) return null;
+  ref.watch(readListCredentialEpochProvider);
+  return connection.client.subscriptionUsage(subscription);
 });
 
 /// After a sign-in or sign-out: the model list and both rows, now.

@@ -31,14 +31,20 @@ def android_inputs(root):
     runtime = root / 'runtime'
     pins = json.loads((runtime / 'patches/pins.json').read_text())
     present = {path.name for path in (runtime / 'patches').glob('*.diff')}
+    series = runtime / 'patches/series'
+    # Main applies patches in its series order (filename order before series existed).
+    order = ([line.strip() for line in series.read_text().splitlines()
+              if line.strip() and not line.lstrip().startswith('#')] if series.exists() else sorted(present))
+    assert sorted(order) == sorted(present), 'series must list every diff once'
     legacy = pins.get('schema') == 1
     if legacy:
         assert present == set(pins['patches']), 'Legacy patch catalog mismatch'
-        names = sorted(present)
+        names = order
     else:
         assert pins.get('schema') == 2
-        names = sorted(pins['targetSets']['android'])
-        assert len(names) == len(set(names)) and set(names) <= present
+        android = pins['targetSets']['android']
+        assert len(android) == len(set(android)) and set(android) <= present
+        names = [name for name in order if name in set(android)]
     inputs = {'schema': 1, 'target': 'android', 'dshVersion': '0.2.2-rc.1', 'patches': []}
     for name in names:
         inputs['patches'].append({'name': name, 'sha256': sha(runtime / 'patches' / name),

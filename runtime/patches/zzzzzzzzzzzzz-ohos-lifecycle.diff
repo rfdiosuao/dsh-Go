@@ -13,7 +13,7 @@
  //#region lib/types/inbox.js
  /**
  * Driver-owned durable agent inbox projection and command facade.
-@@ -715,6 +721,10 @@
+@@ -718,6 +724,10 @@
  		/* v8 ignore next -- private callers establish the running phase before proposing a step */
  		if (this.phase.kind !== "running") throw new Error(`agent "${this.id}": pre-step outside running phase`);
  		const signal = this.phase.abort.signal;
@@ -22,12 +22,12 @@
 +			do { await lifecycle.gate(this.session.id, signal); } while (!lifecycle.admit(this.session.id, signal));
 +		}
  		const claimed = this.inbox.claim(target, position.turn);
+ 		const recall = await dshGoRecall.prepare(this.loopCtx, this, position, claimed, signal);
  		const selection = this.model.current();
- 		if (selection === void 0) throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`);
-@@ -1819,8 +1829,14 @@
- 					const coldRead = await handle.read(0, void 0, { signal: fused });
+@@ -1833,8 +1843,14 @@
  					fused.throwIfAborted();
  					const persisted = coldRead.events;
+ 					dshGoRecall.guardSession(this.runtime.ctx, { sessionId: id, operation: "resume", recallHistory: dshGoRecall.hasHistory(persisted) });
 -					const closers = interruptedTurnClosers(persisted);
 +					const lifecycle = ohosLifecycle();
 +					const originalClosers = interruptedTurnClosers(persisted);
@@ -40,7 +40,7 @@
  					preparation = SessionPreparation.create(this.runtime.ctx.sessions.prepare(id, {
  						seed: [...persisted, ...closers],
  						meta: structuredClone(handle.header),
-@@ -1858,4 +1874,4 @@
+@@ -1872,4 +1888,4 @@
  	}
  };
  //#endregion
@@ -131,10 +131,10 @@
  		return;
 --- a/node_modules/@deepseek-ai/dsh-tools/lib/pipeline.js
 +++ b/node_modules/@deepseek-ai/dsh-tools/lib/pipeline.js
-@@ -2,6 +2,10 @@
- import { scopeTarget } from "@deepseek-ai/dsh-scope";
- import { HarnessError, createToolResultMessage } from "@deepseek-ai/dsh-llm";
+@@ -5,6 +5,10 @@
  import { assertNever, deepFreeze, snapshotJsonValue } from "@deepseek-ai/dsh-util-values";
+ import { randomUUID } from "node:crypto";
+ import { emitAgentEvent } from "@deepseek-ai/dsh-agent";
 +function ohosLifecycle() {
 +	if (process.platform !== "openharmony" && globalThis[Symbol.for("dsh.go.ohos.sim")] !== true) return;
 +	return globalThis[Symbol.for("dsh.go.ohos.lifecycle")];
@@ -142,7 +142,7 @@
  //#region lib/types/batch.js
  /**
  * Schedules one assistant step's tool calls. Exclusive calls form barriers;
-@@ -78,6 +82,10 @@
+@@ -103,6 +107,10 @@
  * for the owning step to record recovery results.
  */
  async function runGroup(pipeline, settlement, maxParallelToolCalls, group, mode, signal) {
@@ -153,7 +153,7 @@
  	const slots = group.map(() => void 0);
  	const callSeqs = group.map(() => void 0);
  	let nextToStart = 0;
-@@ -94,22 +102,31 @@
+@@ -119,22 +127,31 @@
  			const slot = slots[committed];
  			if (slot === void 0) break;
  			const call = group[committed];
@@ -189,7 +189,7 @@
  					slots[index] = {
  						...outcome,
  						exec: prepared.exec
-@@ -156,6 +173,7 @@
+@@ -181,6 +198,7 @@
  	} catch (error) {
  		schedulerFailure ??= { error };
  		await Promise.allSettled(inFlight.values());
@@ -197,7 +197,7 @@
  		throw schedulerFailure.error;
  	}
  	if (aborted) {
-@@ -193,10 +211,10 @@
+@@ -219,12 +237,12 @@
  			arguments: block.arguments
  		}).seq;
  	}
@@ -205,8 +205,10 @@
 +	commit(block, result, callSeq, durableSessionData) {
  		if (this.input.log !== void 0) {
  			const { agent, log: { turn, step } } = this.input;
--			agent.session.append("tool/result", {
-+			agent.session.append("tool/result", durableSessionData !== void 0 ? durableSessionData : {
+ 			const session = agent.session;
+ 			result = this.companionResults?.beforeCommit(agent, session, block, result) ?? result;
+-			const event = session.append("tool/result", {
++			const event = session.append("tool/result", durableSessionData !== void 0 ? durableSessionData : {
  				turn,
  				step,
  				message: createToolResultMessage({

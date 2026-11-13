@@ -108,5 +108,8 @@ String diagnosticsSavedText(String where) => savedInChosenPlace(where)
     : appL10n.stateDiagnosticsSaved(where.replaceFirst(RegExp(r'^Download/'), appL10n.stateDownloadsPrefix));
 
 final diagnosticsExporterProvider = Provider<DiagnosticsExporter>(
-  (ref) => DiagnosticsExporter(collect: (at) => collectDiagnostics(ref, at), files: ref.watch(filesChannelProvider)),
+  (ref) => DiagnosticsExporter(
+    collect: (at) => collectDiagnostics(ref, at, includeSystemIme: true),
+    files: ref.watch(filesChannelProvider),
+  ),
 );

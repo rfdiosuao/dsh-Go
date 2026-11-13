@@ -30,6 +30,7 @@ import 'engine_capabilities.dart';
 import 'local_uninstall.dart';
 import 'reset_outcome.dart';
 import 'log_view.dart';
+import 'workspace_recovery_settings.dart';
 
 /// `rN-dsh…-HASH` → `rN · HASH8`; anything else is shown as is.
 String shortRuntimeVersion(String? v) {
@@ -50,12 +51,19 @@ String engineDetail(RuntimeStatus status) => switch (status.phase) {
         : status.tidyingFiles
         ? appL10n.phoneEngineTidyingFilesEllipsis
         : appL10n.phoneEngineStartingEllipsis,
-  RuntimePhase.stopping => appL10n.phoneEngineStoppingEllipsis,
+  RuntimePhase.stopping =>
+    isLocalStartupFailure(status)
+        ? appL10n.phoneStartupFailureStoppingDetail(
+            humanizeRuntimeError(status.error) ?? appL10n.phoneEngineErrorSeeLogs,
+          )
+        : appL10n.phoneEngineStoppingEllipsis,
   RuntimePhase.installed => status.inSafeMode ? appL10n.phoneEngineStoppedNextSafe : appL10n.commonStopped,
   RuntimePhase.installing => appL10n.phoneEngineInstallingRuntime,
   RuntimePhase.notInstalled => appL10n.phoneEngineRuntimeNotInstalled,
   RuntimePhase.error =>
-    status.failure != null
+    isLocalStartupFailure(status)
+        ? humanizeRuntimeError(status.error) ?? appL10n.phoneEngineErrorSeeLogs
+        : status.failure != null
         ? failureOneLiner(status.failure!)
         : humanizeRuntimeError(status.error) ?? appL10n.phoneEngineErrorSeeLogs,
 };
@@ -184,6 +192,8 @@ class EngineScreen extends ConsumerWidget {
                 ...engineCapabilityRows(l10n, ref.watch(runtimeCapabilitiesProvider).value),
               ],
             ),
+            // A way around a broken index, next to the other ways out of trouble.
+            if (!missing) const WorkspaceRecoverySettings(),
             if (!missing)
               SettingsSection(
                 children: [

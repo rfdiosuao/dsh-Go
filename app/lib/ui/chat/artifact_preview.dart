@@ -283,6 +283,7 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
   Timer? _debounce;
   bool _ready = false;
   int _watchEpoch = 0;
+  int _selectionEpoch = 0;
   late int _index = widget.initial;
 
   List<Artifact> get _images => widget.gallery ?? [widget.artifact];
@@ -301,9 +302,13 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
   }
 
   void _stopFollowing() {
-    _watchEpoch++;
     _debounce?.cancel();
     _debounce = null;
+    _stopWatch();
+  }
+
+  void _stopWatch() {
+    _watchEpoch++;
     unawaited(_watch?.cancel());
     _watch = null;
     _ready = false;
@@ -311,6 +316,7 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
 
   void _select(int index) {
     if (index == _index) return;
+    _selectionEpoch++;
     _stopFollowing();
     setState(() {
       _index = index;
@@ -366,16 +372,16 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
     if (_busy) return;
     if (action == ArtifactAction.preview) return;
     setState(() => _busy = true);
-    final epoch = _watchEpoch;
+    final epoch = _selectionEpoch;
     try {
       await runArtifactAction(context, ref, sessionId: widget.sessionId, artifact: _artifact, action: action);
     } finally {
-      if (mounted && epoch == _watchEpoch) setState(() => _busy = false);
+      if (mounted && epoch == _selectionEpoch) setState(() => _busy = false);
     }
   }
 
   Future<void> _menu() async {
-    final epoch = _watchEpoch;
+    final epoch = _selectionEpoch;
     final files = ref.read(artifactFilesProvider);
     final action = await showArtifactMenu(
       context,
@@ -383,7 +389,7 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
       canFetch: files.canFetch,
       officeToPdf: files.canConvertOffice,
     );
-    if (action != null && mounted && epoch == _watchEpoch) await _act(action);
+    if (action != null && mounted && epoch == _selectionEpoch) await _act(action);
   }
 
   List<Widget> get _actions => [
@@ -411,6 +417,11 @@ class _ArtifactPreviewPageState extends ConsumerState<ArtifactPreviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(workspaceSourceProvider(widget.sessionId), (_, _) {
+      // Keep a pending refresh for the selected file.
+      _stopWatch();
+      _follow();
+    });
     final l10n = context.l10n;
     // Only Office files depend on the connection (can the Host convert?).
     final office = isOfficePath(_artifact.path);
@@ -788,6 +799,8 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
       setState(() => _error = const ArtifactError('offline'));
       return;
     }
+    // A page started during this read must keep its own busy state.
+    final wasPaging = _more;
     final token = ++_token;
     final limit = again && _lines > previewPageLines
         ? _lines.clamp(previewPageLines, previewMaxLines)
@@ -802,12 +815,16 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
         _version = page.version;
         _bytes = page.bytes ?? _bytes;
         _loaded = true;
+        if (wasPaging) _more = false;
         _error = null;
       });
     } catch (error) {
       if (!mounted || token != _token) return;
       // A reload that fails keeps what is on screen.
-      if (!_loaded) setState(() => _error = error);
+      setState(() {
+        if (wasPaging) _more = false;
+        if (!_loaded) _error = error;
+      });
       // 文件较大 says how large.
       if (_bytes == null && widget.artifact.bytes == null) {
         try {
@@ -846,7 +863,7 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
         _more = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _more = false);
+      if (mounted && token == _token) setState(() => _more = false);
     }
   }
 

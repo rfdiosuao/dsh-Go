@@ -35,6 +35,7 @@ abstract final class AppIcons {
   static const allFeatures = DshGlyphs.dotsNine;
   static const browser = DshGlyphs.browser;
   static const scrollToBottom = DshGlyphs.arrowDown;
+  static const scrollToTop = DshGlyphs.arrowUp;
   static const sidebar = DshGlyphs.sidebarSimpleRight;
   static const dragHandle = DshGlyphs.dotsSixVertical;
   static const swap = DshGlyphs.arrowsLeftRight;
@@ -69,6 +70,9 @@ abstract final class AppIcons {
   static const gallery = DshGlyphs.images;
   static const files = DshGlyphs.folderOpen;
   static const addImage = DshGlyphs.image;
+
+  /// 「传文件到电脑」 (Remote workspace upload).
+  static const uploadToHost = DshGlyphs.boxArrowUp;
 
   // ── 消息操作 ────────────────────────────────────────────────
   static const copy = DshGlyphs.copy;
@@ -335,6 +339,10 @@ abstract final class AppIcons {
   static const workflow = DshGlyphs.flowArrow;
   static const todo = DshGlyphs.listChecks;
   static const goal = DshGlyphs.flag;
+
+  /// 创意工坊: the place itself, and reporting an item there (ui/workshop).
+  static const workshop = DshGlyphs.package;
+  static const report = DshGlyphs.flag;
   static const plan = DshGlyphs.mapTrifold;
   static const planMode = DshGlyphs.mapTrifold;
   static const jobs = DshGlyphs.clipboardText;
@@ -361,6 +369,12 @@ abstract final class AppIcons {
   static const tool = DshGlyphs.wrench;
   static const tip = DshGlyphs.lightbulb;
 
+  /// 伙伴小屋: she now and then asks you to rest with her (companion_page.dart).
+  static const companionInvite = DshGlyphs.chatTeardropText;
+
+  /// 伙伴小屋: her words read aloud (companion_voice.dart). Not the microphone: that is the person's voice.
+  static const companionVoice = DshGlyphs.musicNote;
+
   /// 「问 AI」: a question about the app for the agent (ui/common/ask_ai.dart).
   static const askAi = DshGlyphs.sparkle;
 
@@ -379,6 +393,17 @@ abstract final class AppIcons {
 
   /// 设置 › 宠物.
   static const pet = DshGlyphs.smiley;
+
+  /// 模式 › 酒馆 (role play).
+  static const tavern = DshGlyphs.bookOpen;
+  static const lorebook = DshGlyphs.globe;
+  static const textSpeed = DshGlyphs.cursorText;
+  static const tavernContext = DshGlyphs.clockCounterClockwise;
+  static const tavernReplyLength = DshGlyphs.textAlignLeft;
+  static const tavernTemperature = DshGlyphs.slidersHorizontal;
+
+  /// The drawer's key to 模式.
+  static const modes = DshGlyphs.stack;
 
   /// 设置 › 隐私与分享.
   static const privacy = DshGlyphs.lockKey;
@@ -454,6 +479,9 @@ abstract final class AppIcons {
   static const playVideo = DshGlyphs.playCircle;
   static const mail = DshGlyphs.envelopeSimple;
   static const write = DshGlyphs.notePencil;
+
+  /// 接着写: the reply keeps talking (not an arrow, which reads as send).
+  static const continueReply = DshGlyphs.chatCenteredDots;
   static const featured = DshGlyphs.sparkle;
   static const bug = DshGlyphs.bug;
   static const school = DshGlyphs.graduationCap;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
@@ -39,6 +40,7 @@ abstract final class SafeModeActions {
   /// to move aside there, and it can mean reopening the app.
   static Future<void> enter(BuildContext context) async {
     final container = _container(context);
+    final messenger = ScaffoldMessenger.maybeOf(context);
     if (_harmony(container)) {
       final l10n = context.l10n;
       final note = _reopenNote(container);
@@ -68,7 +70,7 @@ abstract final class SafeModeActions {
       if (move == null) return;
       if (move) moveAside = [for (final h in hazards) h.path];
     }
-    await EngineControl.enterSafeMode(container, moveAside: moveAside);
+    await _enterSafeMode(container, messenger, moveAside: moveAside);
   }
 
   /// true = move aside, false = start anyway, null = cancel.
@@ -139,11 +141,15 @@ abstract final class SafeModeActions {
     if (ok != true) return;
     try {
       await EngineControl.restoreLastKnownGood(container);
-      messenger?.showSnackBar(
-        SnackBar(content: Text(note == null ? l10n.phoneSafeRestoredStarting : l10n.harmonyRestoredReopening)),
-      );
-    } catch (_) {
-      messenger?.showSnackBar(SnackBar(content: Text(l10n.phoneSafeRestoreFailed)));
+      if (messenger != null && messenger.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(note == null ? l10n.phoneSafeRestoredStarting : l10n.harmonyRestoredReopening)),
+        );
+      }
+    } catch (error) {
+      if (messenger != null && messenger.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(_recoveryError(error, l10n.phoneSafeRestoreFailed))));
+      }
     }
   }
 
@@ -202,8 +208,31 @@ abstract final class SafeModeActions {
       hazards.every((h) => h.kind == 'homePatch') ? appL10n.phoneSafeMovePatch : appL10n.phoneSafeMoveFiles;
 
   /// Moves the given files aside and starts safe mode again.
-  static Future<void> moveAsideAndRetry(BuildContext context, List<SafeHazard> hazards) =>
-      EngineControl.enterSafeMode(_container(context), moveAside: [for (final h in hazards) h.path]);
+  static Future<void> moveAsideAndRetry(BuildContext context, List<SafeHazard> hazards) => _enterSafeMode(
+    _container(context),
+    ScaffoldMessenger.maybeOf(context),
+    moveAside: [for (final h in hazards) h.path],
+  );
+
+  static Future<void> _enterSafeMode(
+    ProviderContainer container,
+    ScaffoldMessengerState? messenger, {
+    required List<String> moveAside,
+  }) async {
+    try {
+      await EngineControl.enterSafeMode(container, moveAside: moveAside);
+    } catch (error) {
+      if (messenger != null && messenger.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(_recoveryError(error, appL10n.commonFailedTryAgain))));
+      }
+    }
+  }
+
+  static String _recoveryError(Object error, String fallback) => switch (error) {
+    PlatformException(code: 'runtime_not_stopped') => appL10n.phoneSafeStopIncomplete,
+    PlatformException(code: 'runtime_not_stopped_after_recovery') => appL10n.phoneSafeRestartIncomplete,
+    _ => fallback,
+  };
 
   static Future<void> dismissFailure(BuildContext context) =>
       _container(context).read(runtimeBridgeProvider).clearFailure();

@@ -82,6 +82,8 @@ class _UnreadableSecrets implements SecretStore {
   _UnreadableSecrets([this.code = 'secrets_unreadable']);
 
   final String code;
+
+  /// Store calls that changed or would have changed something (write, delete).
   int writes = 0;
 
   @override
@@ -94,7 +96,10 @@ class _UnreadableSecrets implements SecretStore {
   }
 
   @override
-  Future<void> delete(String key) async => throw PlatformException(code: code);
+  Future<void> delete(String key) async {
+    writes++;
+    throw PlatformException(code: code);
+  }
 }
 
 class _MemoryLinks implements HostedLinkStore {
