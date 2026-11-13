@@ -44,10 +44,16 @@ try {
     const pending = f.invoke('updateBundle', name, '2.0.0', { registry: f.registry, requestId: 'write-failure-update' });
     await f.tarEntered.promise;
     await setLimit('limit');
-    await f.invoke('cancelInstall', 'write-failure-update');
+    const cancel = await f.invoke('cancelInstall', 'write-failure-update')
+      .then(value => ({ value }), error => ({ error }));
     const { result: failed } = await pending;
     assert.equal(failed.application, 'failed');
     assert.match(failed.error.diagnostic, /EFBIG/);
+    // The manager's own restore step hit the limit, so cancellation reports
+    // that failure instead of acknowledging it (plugin-manager-cancel-tree-confirmation);
+    // the journal's final rollback below still restores the profile.
+    assert.equal(cancel.error?.code, 'EFBIG', 'cancellation must not acknowledge a failed restore step');
+    assert.equal(cancel.error.message, failed.error.diagnostic);
     const journal = join(f.dir, '.plugin-manager/ohos/transaction.json');
     assert.equal(existsSync(join(f.dir, 'package.json.lock')), false);
     // The ordinary beforeimages permit the manager's final rollback while the
@@ -56,7 +62,7 @@ try {
     assert.deepEqual(await f.snapshot(), before, 'profile bytes and active selection are restored before writes resume');
     assert.equal(selectedPackage(f.dir, name), beforeSelection);
     await runInstalledTool(f.dir, '1.0.0');
-    process.send({ stage: 'rollback-complete', writesStillLimited: true,
+    process.send({ stage: 'rollback-complete', writesStillLimited: true, cancelError: cancel.error.code,
       journalRemoved: true, restoredVersion: '1.0.0', actualToolVersion: '1.0.0' });
     await setLimit('restore');
     checkWritable(f.root);
