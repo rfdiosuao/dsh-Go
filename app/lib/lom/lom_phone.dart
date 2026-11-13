@@ -11,6 +11,8 @@ export 'base64url.dart';
 export 'credentials.dart';
 export 'engine.dart';
 export 'envelope.dart';
+export 'file_store.dart';
+export 'file_storage.dart';
 export 'identity.dart';
 export 'identity_store.dart';
 export 'io_adapters.dart';

@@ -253,6 +253,13 @@ class LomRpcDispatcher {
       case 'chat.delete':
       case 'device.status':
       case 'device.rename':
+      case 'file.begin':
+      case 'file.chunk':
+      case 'file.finish':
+      case 'file.read':
+      case 'file.list':
+      case 'file.delete':
+      case 'file.save_gallery':
         final result =
             await optional!.handle(method, payload, sender);
         // A deleted session must not linger in the read cache.
@@ -274,7 +281,10 @@ class LomRpcDispatcher {
   Map<String, Object?> _capabilities() => {
         'version': 1,
         'methods': [...implementedMethods]..sort(),
-        'limits': {'chat.send.max_text_chars': 20000},
+        'limits': {
+          'chat.send.max_text_chars': 20000,
+          if (optional?.files != null) 'file.max_bytes': 104857600,
+        },
       };
 
   // ---------------------------------------------------------------- model
@@ -397,8 +407,17 @@ class LomRpcDispatcher {
     }
     if (text.trim().isEmpty) text = '请查看附件。';
     if (files.isNotEmpty) {
-      // `file.*` lands in Phase 4: no attachment id can be verified yet.
-      throw LomRpcException('file.missing');
+      // `file.*` (Phase 4): every attachment id must name a finished,
+      // verified upload from this desktop — nothing else is sendable.
+      final store = optional?.files;
+      if (store == null) throw LomRpcException('file.missing');
+      for (final id in files) {
+        final record = await store.lookup(id, sender);
+        if (record == null) throw LomRpcException('file.missing');
+        if (record.status != 'complete') {
+          throw LomRpcException('file.incomplete');
+        }
+      }
     }
     final contentHash = crypto.sha256
         .convert(utf8.encode('$sessionId\n$text\n${jsonEncode(files)}'))
