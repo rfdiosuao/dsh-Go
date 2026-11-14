@@ -29,4 +29,5 @@ export 'rpc_errors.dart';
 export 'rpc_store.dart';
 export 'schedule_mapping.dart';
 export 'schedule_write.dart';
+export 'skill_zip.dart';
 export 'skills.dart';

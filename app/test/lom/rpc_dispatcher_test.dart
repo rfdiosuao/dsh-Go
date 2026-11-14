@@ -1208,7 +1208,7 @@ void main() {
 
     /// Replaces every occurrence of [from] with [to] (same length) in
     /// ZIP bytes — used to plant names the encoder would normalize away.
-    List<int> _patchBytes(List<int> bytes, String from, String to) {
+    List<int> patchBytes(List<int> bytes, String from, String to) {
       final out = List<int>.from(bytes);
       final fromBytes = utf8.encode(from);
       final toBytes = utf8.encode(to);
@@ -1380,7 +1380,7 @@ void main() {
       }
       // The encoder normalizes backslashes to '/', so a literal
       // backslash name has to be patched into the bytes by hand.
-      final patched = _patchBytes(
+      final patched = patchBytes(
         skillZip({
           'SKILL.md': utf8.encode(skillMd()),
           'a/b.txt': utf8.encode('x'),
