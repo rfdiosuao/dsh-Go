@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dsh_app/lom/lom_phone.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -312,6 +313,11 @@ class _Harness {
         scheduleWrite: LomScheduleWriteHandler(
           engine: engine,
           receipts: LomOperationReceiptStore(store),
+          now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
+        ),
+        skills: LomSkillRegistry(
+          store,
+          files: fileStore,
           now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
         ),
         now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
@@ -1162,6 +1168,374 @@ void main() {
         }),
       );
       expect(error, 'remote.method_unknown');
+    });
+
+    // --- skills.* (Phase 4) ----------------------------------------
+
+    List<int> skillZip(Map<String, List<int>> entries) {
+      final archive = Archive();
+      for (final entry in entries.entries) {
+        archive.addFile(
+          ArchiveFile(entry.key, entry.value.length, entry.value),
+        );
+      }
+      return ZipEncoder().encode(archive);
+    }
+
+    String skillMd({
+      String name = 'test-skill',
+      String description = 'A test skill',
+      String? version,
+      String body = '# Test\n\nDo things.',
+    }) => [
+          'name: $name',
+          'description: $description',
+          if (version != null) 'version: $version',
+          '---',
+          '',
+          body,
+        ].join('\n');
+
+    Future<String> uploadSkillZip(_Harness h, List<int> bytes) async {
+      final record = await h.fileStore.registerComplete(
+        sender: h.desktop.keys,
+        name: 'skill.zip',
+        mime: 'application/zip',
+        bytes: bytes,
+      );
+      return record.id;
+    }
+
+    /// Replaces every occurrence of [from] with [to] (same length) in
+    /// ZIP bytes — used to plant names the encoder would normalize away.
+    List<int> patchBytes(List<int> bytes, String from, String to) {
+      final out = List<int>.from(bytes);
+      final fromBytes = utf8.encode(from);
+      final toBytes = utf8.encode(to);
+      for (var i = 0; i + fromBytes.length <= out.length; i++) {
+        var match = true;
+        for (var j = 0; j < fromBytes.length; j++) {
+          if (out[i + j] != fromBytes[j]) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          out.replaceRange(i, i + fromBytes.length, toBytes);
+          i += fromBytes.length - 1;
+        }
+      }
+      return out;
+    }
+
+    Future<(String, Map<String, dynamic>, String)> install(
+      _Harness h,
+      String transferId,
+    ) async =>
+        h.reply(await h.call('skills.install', {
+          'id': transferId,
+          'enabled': '',
+        }));
+
+    test('skills.install registers the skill; list/read/toggle/delete',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({'SKILL.md': utf8.encode(skillMd())}),
+      );
+      final (status, installed, error) = await install(h, transferId);
+      expect(error, '');
+      expect(status, 'ok');
+      expect(installed['id'], 'test-skill');
+      expect(installed['name'], 'test-skill');
+      expect(installed['description'], 'A test skill');
+      expect(installed['version'], '1.0.0');
+      expect(installed['enabled'], 'true');
+      expect(installed['body'], '# Test\n\nDo things.');
+      final (_, list, _) =
+          await h.reply(await h.call('skills.list', {}));
+      final items = jsonDecode(list['items'] as String) as List;
+      expect(items.length, 1);
+      expect(items[0]['id'], 'test-skill');
+      expect(items[0]['body'], '');
+      final (_, read, _) = await h.reply(
+        await h.call('skills.read', {'id': 'test-skill', 'enabled': ''}),
+      );
+      expect(read['body'], '# Test\n\nDo things.');
+      final (_, toggled, _) = await h.reply(
+        await h.call('skills.toggle', {
+          'id': 'test-skill',
+          'enabled': 'false',
+        }),
+      );
+      expect(toggled['enabled'], 'false');
+      final (_, deleted, error2) = await h.reply(
+        await h.call('skills.delete', {'id': 'test-skill', 'enabled': ''}),
+      );
+      expect(error2, '');
+      expect(deleted['status'], 'deleted');
+      final (_, _, error3) = await h.reply(
+        await h.call('skills.read', {'id': 'test-skill', 'enabled': ''}),
+      );
+      expect(error3, 'skill.not_found');
+    });
+
+    test('skills.install accepts a single common top directory',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({
+          'my-skill/SKILL.md': utf8.encode(skillMd()),
+          'my-skill/README.md': utf8.encode('notes'),
+        }),
+      );
+      final (_, installed, error) = await install(h, transferId);
+      expect(error, '');
+      expect(installed['id'], 'test-skill');
+    });
+
+    test('skills.install ignores __MACOSX and .DS_Store entries',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({
+          'SKILL.md': utf8.encode(skillMd()),
+          '__MACOSX/SKILL.md': utf8.encode('junk'),
+          '.DS_Store': utf8.encode('junk'),
+        }),
+      );
+      final (_, installed, error) = await install(h, transferId);
+      expect(error, '');
+      expect(installed['id'], 'test-skill');
+    });
+
+    test('skills.install refuses a second skill with the same name',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final first = await uploadSkillZip(
+        h,
+        skillZip({'SKILL.md': utf8.encode(skillMd())}),
+      );
+      await install(h, first);
+      final second = await uploadSkillZip(
+        h,
+        skillZip({'SKILL.md': utf8.encode(skillMd())}),
+      );
+      final (_, _, error) = await install(h, second);
+      expect(error, 'skill.already_exists_or_invalid_name');
+    });
+
+    test('skills.install refuses an unknown or incomplete transfer',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final (_, _, error) = await install(h, 'no-such-transfer-01');
+      expect(error, 'skill.invalid_transfer');
+      final (_, begun, _) = await h.reply(
+        await h.call('file.begin', {
+          'id': 'incomplete-transfer-01',
+          'name': 'skill.zip',
+          'mime': 'application/zip',
+          'size': '10',
+          'sha256': '0' * 64,
+        }),
+      );
+      expect(begun['status'], 'uploading');
+      final (_, _, error2) =
+          await install(h, 'incomplete-transfer-01');
+      expect(error2, 'skill.invalid_transfer');
+    });
+
+    test('skills.install rejects an invalid zip', () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        utf8.encode('this is not a zip at all'),
+      );
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.invalid_zip');
+    });
+
+    test('skills.install rejects unsafe paths', () async {
+      final h = _Harness();
+      await h.init();
+      for (final bad in ['../evil.txt', '/abs.txt']) {
+        final transferId = await uploadSkillZip(
+          h,
+          skillZip({
+            'SKILL.md': utf8.encode(skillMd()),
+            bad: utf8.encode('x'),
+          }),
+        );
+        final (_, _, error) = await install(h, transferId);
+        expect(error, 'skill.unsafe_path', reason: bad);
+      }
+      // The encoder normalizes backslashes to '/', so a literal
+      // backslash name has to be patched into the bytes by hand.
+      final patched = patchBytes(
+        skillZip({
+          'SKILL.md': utf8.encode(skillMd()),
+          'a/b.txt': utf8.encode('x'),
+        }),
+        'a/b.txt',
+        r'a\b.txt',
+      );
+      final transferId = await uploadSkillZip(h, patched);
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.unsafe_path');
+    });
+
+    test('skills.install rejects a symlink entry', () async {
+      final h = _Harness();
+      await h.init();
+      final bytes = List<int>.from(
+        skillZip({
+          'SKILL.md': utf8.encode(skillMd()),
+          'link.txt': utf8.encode('x'),
+        }),
+      );
+      // Patch the central-directory entry for link.txt: external
+      // attributes (offset +38) to Unix symlink mode 0120777.
+      for (var i = 0; i + 46 < bytes.length; i++) {
+        if (bytes[i] == 0x50 &&
+            bytes[i + 1] == 0x4b &&
+            bytes[i + 2] == 0x01 &&
+            bytes[i + 3] == 0x02) {
+          final nameLen = bytes[i + 28] | (bytes[i + 29] << 8);
+          final name =
+              utf8.decode(bytes.sublist(i + 46, i + 46 + nameLen));
+          if (name == 'link.txt') {
+            bytes[i + 38] = 0x00;
+            bytes[i + 39] = 0x00;
+            bytes[i + 40] = 0xFF;
+            bytes[i + 41] = 0xA1;
+            break;
+          }
+        }
+      }
+      final transferId = await uploadSkillZip(h, bytes);
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.unsafe_path');
+    });
+
+    test('skills.install rejects duplicate paths', () async {
+      final h = _Harness();
+      await h.init();
+      // The encoder replaces a same-name file, so the duplicate is a
+      // file plus a directory entry with the same normalized path.
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({
+          'SKILL.md': utf8.encode(skillMd()),
+          'a.txt': utf8.encode('x'),
+          'a.txt/': utf8.encode('x'),
+        }),
+      );
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.duplicate_path');
+    });
+
+    test('skills.install requires SKILL.md and a parseable manifest',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final noManifest = await uploadSkillZip(
+        h,
+        skillZip({'README.md': utf8.encode('no manifest here')}),
+      );
+      final (_, _, error) = await install(h, noManifest);
+      expect(error, 'skill.missing_manifest');
+      final noName = await uploadSkillZip(
+        h,
+        skillZip({
+          'SKILL.md': utf8.encode(
+            'description: nameless\n---\n\nBody.',
+          ),
+        }),
+      );
+      final (_, _, error2) = await install(h, noName);
+      expect(error2, 'skill.invalid_manifest');
+    });
+
+    test('skills.install refuses too many entries', () async {
+      final h = _Harness();
+      await h.init();
+      final entries = <String, List<int>>{
+        'SKILL.md': utf8.encode(skillMd()),
+        for (var i = 0; i < 601; i++) 'f$i.txt': utf8.encode('x'),
+      };
+      final transferId = await uploadSkillZip(h, skillZip(entries));
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.too_many_files');
+    });
+
+    test('skills.install refuses an over-expanded package', () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({
+          'SKILL.md': utf8.encode(skillMd()),
+          'big.bin': List<int>.filled(31 * 1024 * 1024, 0),
+        }),
+      );
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.expanded_too_large');
+    });
+
+    test('skills.install refuses an oversized package', () async {
+      final h = _Harness();
+      await h.init();
+      final transferId = await uploadSkillZip(
+        h,
+        List<int>.filled(10 * 1024 * 1024 + 1, 0),
+      );
+      final (_, _, error) = await install(h, transferId);
+      expect(error, 'skill.package_too_large');
+    });
+
+    test('skills.toggle validates enabled; missing skills stay not_found',
+        () async {
+      final h = _Harness();
+      await h.init();
+      final (_, _, error) = await h.reply(
+        await h.call('skills.toggle', {'id': 'nope', 'enabled': 'true'}),
+      );
+      expect(error, 'skill.not_found');
+      final transferId = await uploadSkillZip(
+        h,
+        skillZip({'SKILL.md': utf8.encode(skillMd())}),
+      );
+      await install(h, transferId);
+      final (_, _, error2) = await h.reply(
+        await h.call('skills.toggle', {
+          'id': 'test-skill',
+          'enabled': 'maybe',
+        }),
+      );
+      expect(error2, 'skill.invalid_toggle');
+      final (_, _, error3) = await h.reply(
+        await h.call('skills.delete', {'id': 'nope', 'enabled': ''}),
+      );
+      expect(error3, 'skill.not_found');
+    });
+
+    test('device.capabilities lists skills.*', () async {
+      final h = _Harness();
+      await h.init();
+      final (_, payload, _) =
+          await h.reply(await h.call('device.capabilities', {}));
+      final methods = (payload['methods'] as List).cast<String>();
+      expect(methods, containsAll(['skills.list', 'skills.install']));
+      expect(methods, isNot(contains('screen.capture')));
     });
 
     test('recoverInterrupted marks running sessions interrupted', () async {

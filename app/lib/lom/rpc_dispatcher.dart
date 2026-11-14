@@ -264,6 +264,11 @@ class LomRpcDispatcher {
       case 'schedule.save':
       case 'schedule.delete':
       case 'schedule.run':
+      case 'skills.list':
+      case 'skills.read':
+      case 'skills.install':
+      case 'skills.toggle':
+      case 'skills.delete':
         final result =
             await optional!.handle(method, payload, sender);
         // A deleted session must not linger in the read cache.

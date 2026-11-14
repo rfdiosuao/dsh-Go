@@ -38,6 +38,7 @@ import 'relay_client.dart';
 import 'rpc_dispatcher.dart';
 import 'rpc_store.dart';
 import 'schedule_write.dart';
+import 'skills.dart';
 
 class LomRelayState {
   const LomRelayState({
@@ -202,6 +203,10 @@ class LomRelayController extends Notifier<LomRelayState> {
         scheduleWrite: LomScheduleWriteHandler(
           engine: engine,
           receipts: LomOperationReceiptStore(secrets),
+        ),
+        skills: LomSkillRegistry(
+          secrets,
+          files: fileStore,
         ),
       ),
     );
