@@ -136,6 +136,43 @@ void main() {
       expect(statusFor('forked'), isNull);
     });
 
+    test('image/file parts become attachments with refs, not blocks', () {
+      final result = lomMessagesFromEvents([
+        AssistantMessageEvent(
+          1,
+          _t(1000),
+          const {},
+          turn: 1,
+          step: 1,
+          message: _assistantMessage('a1', [
+            const TextPart('see this'),
+            ImagePart(
+              const ImageAttachment(
+                attachmentId: 'img-1',
+                mediaType: 'image/png',
+                name: 'shot.png',
+              ),
+            ),
+            const FilePart(
+              FileAttachment(attachmentId: 'file-1', name: 'doc.pdf'),
+            ),
+            // No id: named nowhere, fetchable nowhere — dropped.
+            const FilePart(FileAttachment(name: 'orphan.txt')),
+          ]),
+        ),
+      ]);
+      expect(result.messages.length, 1);
+      final message = result.messages.single;
+      expect(message.attachments, ['shot.png', 'doc.pdf']);
+      expect(message.attachmentRefs.length, 2);
+      expect(message.attachmentRefs[0].id, 'img-1');
+      expect(message.attachmentRefs[0].kind, 'image');
+      expect(message.attachmentRefs[1].id, 'file-1');
+      expect(message.attachmentRefs[1].kind, 'file');
+      expect(message.blocks.length, 1);
+      expect(message.blocks.single.kind, 'text');
+    });
+
     test('empty message ids fall back to seq ids', () {
       final result = lomMessagesFromEvents([
         UserMessageEvent(

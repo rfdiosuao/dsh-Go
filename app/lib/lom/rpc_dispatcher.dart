@@ -23,6 +23,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart' as crypto;
 
+import 'chat_file.dart';
 import 'engine.dart';
 import 'envelope.dart';
 import 'identity.dart';
@@ -267,6 +268,18 @@ class LomRpcDispatcher {
           _historyCache.remove(_string(payload, 'session_id'));
         }
         return result;
+      case 'chat.file':
+      case 'chat.image':
+        // The handler needs the dispatcher's history cache to resolve
+        // `chat.file`'s (message, index) pair; it is built per call
+        // because it is stateless.
+        final store = optional!.files;
+        if (store == null) throw LomRpcException('remote.method_unknown');
+        return LomChatFileHandler(
+          engine: engine,
+          files: store,
+          findMessage: findMessage,
+        ).handle(method, payload, sender);
       case 'document.list':
         return {'items': <Object?>[]};
       case 'document.read':
@@ -592,6 +605,28 @@ class LomRpcDispatcher {
       'status': status,
       'error': error,
     };
+  }
+
+  /// Finds one message by id, refreshing the history cache from the
+  /// engine first. Used by `chat.file` (in `chat_file.dart`): throws
+  /// `chat.session_missing` when the session does not exist, returns
+  /// null when the message is not in the session.
+  Future<LomChatMessage?> findMessage(
+    String sessionId,
+    String messageId,
+  ) async {
+    if (!await engine.sessionExists(sessionId)) {
+      throw LomRpcException('chat.session_missing');
+    }
+    final cache = _historyCache.putIfAbsent(
+      sessionId,
+      () => _SessionHistoryCache(),
+    );
+    await _refreshHistory(sessionId, cache);
+    for (final message in cache.messages) {
+      if (message.id == messageId) return message;
+    }
+    return null;
   }
 
   String _readStatus(

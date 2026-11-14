@@ -63,6 +63,8 @@ class LomOptionalMethods {
           'file.list',
           'file.delete',
           'file.save_gallery',
+          'chat.file',
+          'chat.image',
         ],
       };
 

@@ -41,6 +41,42 @@ class LomChatBlock {
   final String command;
 }
 
+/// `chat.image` size cap (doc §07 §4): 15 MiB.
+const int lomChatImageMaxBytes = 15728640;
+
+/// One attachment of a chat message, retained so `chat.file` can fetch
+/// it by index (doc §07 `chat.file`). The desktop only sees the file
+/// names (`attachments`); the reference stays on the phone.
+class LomAttachmentRef {
+  const LomAttachmentRef({
+    required this.id,
+    required this.mediaType,
+    required this.name,
+    required this.kind,
+  });
+
+  /// Engine attachment id (`session/attachment` key).
+  final String id;
+  final String mediaType;
+  final String name;
+
+  /// `image` (an `ImagePart`) or `file` (a `FilePart`).
+  final String kind;
+}
+
+/// Fetched attachment bytes, for `chat.file` / `chat.image`.
+class LomAttachmentData {
+  const LomAttachmentData({
+    required this.bytes,
+    required this.mime,
+    required this.name,
+  });
+
+  final List<int> bytes;
+  final String mime;
+  final String name;
+}
+
 /// One chat message (doc §07 `chat.read`).
 class LomChatMessage {
   const LomChatMessage({
@@ -51,6 +87,7 @@ class LomChatMessage {
     this.seq = -1,
     this.blocks = const [],
     this.attachments = const [],
+    this.attachmentRefs = const [],
   });
 
   Map<String, Object?> toJson() => {
@@ -77,6 +114,10 @@ class LomChatMessage {
   final int seq;
   final List<LomChatBlock> blocks;
   final List<String> attachments;
+
+  /// Fetchable references for [attachments], in the same order — the
+  /// `chat.file` index addresses both lists at once.
+  final List<LomAttachmentRef> attachmentRefs;
 }
 
 /// One page of a session's history, newest events first in the raw log but
@@ -261,6 +302,22 @@ abstract class LomEngine {
   /// `ethernet` / `offline` / `unknown` (doc §07 `device.status`). Never
   /// throws: anything unknowable answers `unknown`.
   Future<String> deviceNetwork();
+
+  /// Fetches one message attachment by its retained reference
+  /// (`session/attachment`). Throws [LomEngineException] with
+  /// `file.attachment_missing` when the host has no such attachment.
+  /// File-kind parts go through the same endpoint; a host that only
+  /// serves images answers the same missing code.
+  Future<LomAttachmentData> attachmentBytes({
+    required String sessionId,
+    required LomAttachmentRef ref,
+  });
+
+  /// Reads one file from a session's sandbox (`session` workspace,
+  /// engine-enforced). Throws [LomEngineException] with
+  /// `file.attachment_missing` when the path does not resolve there.
+  /// The caller enforces the image type/size limits.
+  Future<List<int>> readSessionFile(String sessionId, String path);
 
   /// The engine's schedule catalog (read-only).
   Future<List<LomSchedule>> scheduleCatalog();
