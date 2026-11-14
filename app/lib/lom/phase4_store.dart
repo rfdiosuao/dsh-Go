@@ -60,3 +60,73 @@ class LomDeviceNameStore {
         doc['updated_at_ms'] = updatedAtMs;
       });
 }
+
+/// One persisted idempotency receipt for an operation whose outcome the
+/// desktop may need to re-ask about (doc §07 §2): `schedule.run`
+/// (`dispatching` → `accepted` / `failed`) and, later, `screen.control`
+/// (`unknown` → `completed`). The receipt is written **before** the
+/// operation starts, so a retry with the same key never double-executes.
+class LomOperationReceipt {
+  const LomOperationReceipt({
+    required this.key,
+    required this.contentHash,
+    required this.status,
+    required this.sessionId,
+    required this.updatedAtMs,
+  });
+
+  factory LomOperationReceipt.fromJson(Map<String, Object?> json) =>
+      LomOperationReceipt(
+        key: json['key'] as String? ?? '',
+        contentHash: json['content_hash'] as String? ?? '',
+        status: json['status'] as String? ?? 'dispatching',
+        sessionId: json['session_id'] as String? ?? '',
+        updatedAtMs: json['updated_at_ms'] as int? ?? 0,
+      );
+
+  Map<String, Object?> toJson() => {
+        'key': key,
+        'content_hash': contentHash,
+        'status': status,
+        'session_id': sessionId,
+        'updated_at_ms': updatedAtMs,
+      };
+
+  /// The idempotency key (`schedule.run:<request_id>`,
+  /// `screen.control:<request_id>`).
+  final String key;
+
+  /// SHA-256 of the operation's content: the same key with different
+  /// content is an id-reuse error, not a replay.
+  final String contentHash;
+
+  /// Caller-defined status (`dispatching` / `accepted` / `failed`,
+  /// `unknown` / `completed`).
+  final String status;
+
+  /// Session the operation ran in, when known.
+  final String sessionId;
+  final int updatedAtMs;
+}
+
+/// Persistent operation receipts, keyed by idempotency key.
+class LomOperationReceiptStore {
+  LomOperationReceiptStore(this._store);
+
+  final LomSecretStore _store;
+  static const _key = 'lom.op_receipts';
+
+  late final _doc = LomJsonDoc(_store, _key);
+
+  Future<LomOperationReceipt?> receiptFor(String key) async {
+    final doc = await _doc.load();
+    final raw = doc[key];
+    if (raw is! Map<String, dynamic>) return null;
+    return LomOperationReceipt.fromJson(Map<String, Object?>.from(raw));
+  }
+
+  Future<void> saveReceipt(LomOperationReceipt receipt) =>
+      _doc.mutate((doc) {
+        doc[receipt.key] = receipt.toJson();
+      });
+}

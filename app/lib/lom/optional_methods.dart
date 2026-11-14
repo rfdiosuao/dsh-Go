@@ -23,6 +23,7 @@ import 'engine.dart';
 import 'file_store.dart';
 import 'phase4_store.dart';
 import 'rpc_errors.dart';
+import 'schedule_write.dart';
 
 /// Optional-method handlers. Constructed once per relay session in
 /// `lom_relay_service.dart` and passed to [LomRpcDispatcher].
@@ -32,6 +33,7 @@ class LomOptionalMethods {
     required this.pins,
     required this.deviceNames,
     this.files,
+    this.scheduleWrite,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -43,6 +45,11 @@ class LomOptionalMethods {
   /// `file.*` methods stay `remote.method_unknown` and `chat.send` keeps
   /// refusing attachments).
   final LomFileStore? files;
+
+  /// Schedule write side, or null when it is not wired.
+  /// `schedule.toggle` is never listed: there is no toggle API to back
+  /// it (see `schedule_write.dart`).
+  final LomScheduleWriteHandler? scheduleWrite;
 
   final DateTime Function() _now;
 
@@ -65,6 +72,11 @@ class LomOptionalMethods {
           'file.save_gallery',
           'chat.file',
           'chat.image',
+        ],
+        if (scheduleWrite != null) ...[
+          'schedule.save',
+          'schedule.delete',
+          'schedule.run',
         ],
       };
 
@@ -101,6 +113,12 @@ class LomOptionalMethods {
         final store = files;
         if (store == null) throw LomRpcException('remote.method_unknown');
         return store.handle(method, payload, sender);
+      case 'schedule.save':
+      case 'schedule.delete':
+      case 'schedule.run':
+        final writer = scheduleWrite;
+        if (writer == null) throw LomRpcException('remote.method_unknown');
+        return writer.handle(method, payload, sender);
       default:
         throw LomRpcException('remote.method_unknown');
     }
