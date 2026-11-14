@@ -175,6 +175,27 @@ class _FakeEngine implements LomEngine {
 
   @override
   Future<String> deviceNetwork() async => network;
+
+  // Phase 4 (chat.file / chat.image).
+  final attachmentData = <String, LomAttachmentData>{};
+  final sessionFiles = <String, List<int>>{};
+
+  @override
+  Future<LomAttachmentData> attachmentBytes({
+    required String sessionId,
+    required LomAttachmentRef ref,
+  }) async {
+    final data = attachmentData[ref.id];
+    if (data == null) throw LomEngineException('file.attachment_missing');
+    return data;
+  }
+
+  @override
+  Future<List<int>> readSessionFile(String sessionId, String path) async {
+    final bytes = sessionFiles['$sessionId:$path'];
+    if (bytes == null) throw LomEngineException('file.attachment_missing');
+    return bytes;
+  }
 }
 
 class _FakeGallerySaver implements LomGallerySaver {
@@ -1087,6 +1108,143 @@ void main() {
       } finally {
         await dir.delete(recursive: true);
       }
+    });
+  });
+
+  group('Phase 4: chat.file / chat.image over RPC', () {
+    Future<_Harness> harnessWithMessage() async {
+      final h = _Harness();
+      await h.init();
+      final session = _FakeSession();
+      session.messages = [
+        const LomChatMessage(
+          id: 'm1',
+          role: 'assistant',
+          text: 'see this',
+          at: 1767222000000,
+          seq: 1,
+          attachments: ['pic.png'],
+          attachmentRefs: [
+            LomAttachmentRef(
+              id: 'att-1',
+              mediaType: 'image/png',
+              name: 'pic.png',
+              kind: 'image',
+            ),
+          ],
+        ),
+      ];
+      h.engine.sessions['s1'] = session;
+      h.engine.attachmentData['att-1'] = const LomAttachmentData(
+        bytes: [1, 2, 3, 4],
+        mime: 'image/png',
+        name: 'pic.png',
+      );
+      return h;
+    }
+
+    test('chat.file registers the attachment and file.read serves it',
+        () async {
+      final h = await harnessWithMessage();
+      final (status, state, _) = await h.reply(
+        await h.call('chat.file', {
+          'session_id': 's1',
+          'message_id': 'm1',
+          'index': '0',
+        }),
+      );
+      expect(status, 'ok');
+      expect(state['status'], 'complete');
+      expect(state['name'], 'pic.png');
+      expect(state['mime'], 'image/png');
+      final (_, read, _) = await h.reply(
+        await h.call('file.read', {
+          'id': state['id'] as String,
+          'offset': '0',
+        }),
+      );
+      expect(base64Decode(read['data'] as String), [1, 2, 3, 4]);
+    });
+
+    test('chat.file errors: missing session/message/index/attachment',
+        () async {
+      final h = await harnessWithMessage();
+      final (_, _, sessionError) = await h.reply(
+        await h.call('chat.file', {
+          'session_id': 'nope',
+          'message_id': 'm1',
+          'index': '0',
+        }),
+      );
+      expect(sessionError, 'chat.session_missing');
+      final (_, _, messageError) = await h.reply(
+        await h.call('chat.file', {
+          'session_id': 's1',
+          'message_id': 'nope',
+          'index': '0',
+        }),
+      );
+      expect(messageError, 'file.message_missing');
+      final (_, _, indexError) = await h.reply(
+        await h.call('chat.file', {
+          'session_id': 's1',
+          'message_id': 'm1',
+          'index': '1',
+        }),
+      );
+      expect(indexError, 'file.attachment_missing');
+      h.engine.attachmentData.clear();
+      final (_, _, fetchError) = await h.reply(
+        await h.call('chat.file', {
+          'session_id': 's1',
+          'message_id': 'm1',
+          'index': '0',
+        }),
+      );
+      expect(fetchError, 'file.attachment_missing');
+    });
+
+    test('chat.image reads only sandbox images', () async {
+      final h = await harnessWithMessage();
+      h.engine.sessionFiles['s1:shots/a.png'] = [9, 8, 7];
+      final (status, state, _) = await h.reply(
+        await h.call('chat.image', {
+          'session_id': 's1',
+          'source': 'shots/a.png',
+        }),
+      );
+      expect(status, 'ok');
+      expect(state['status'], 'complete');
+      expect(state['mime'], 'image/png');
+      for (final bad in ['/abs/a.png', '../a.png', 'a.txt', 'a.png/..']) {
+        final (_, _, error) = await h.reply(
+          await h.call('chat.image', {'session_id': 's1', 'source': bad}),
+        );
+        expect(error, 'file.invalid_source', reason: bad);
+      }
+      final (_, _, missingError) = await h.reply(
+        await h.call('chat.image', {
+          'session_id': 's1',
+          'source': 'shots/gone.png',
+        }),
+      );
+      expect(missingError, 'file.attachment_missing');
+      final (_, _, sessionError) = await h.reply(
+        await h.call('chat.image', {
+          'session_id': 'nope',
+          'source': 'shots/a.png',
+        }),
+      );
+      expect(sessionError, 'chat.session_missing');
+    });
+
+    test('capabilities lists chat.file and chat.image', () async {
+      final h = await harnessWithMessage();
+      final (_, caps, _) =
+          await h.reply(await h.call('device.capabilities', {}));
+      final methods = (caps['methods'] as List).cast<String>();
+      expect(methods, contains('chat.file'));
+      expect(methods, contains('chat.image'));
     });
   });
 }

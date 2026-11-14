@@ -8,6 +8,7 @@
 library;
 
 export 'base64url.dart';
+export 'chat_file.dart';
 export 'credentials.dart';
 export 'engine.dart';
 export 'envelope.dart';

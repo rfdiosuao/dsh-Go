@@ -66,8 +66,12 @@ class DshLomEngine implements LomEngine {
   /// Runs [run] against the engine client. A closed client is dropped,
   /// re-resolved once, and the call retried; anything else that is not
   /// already a [LomEngineException] becomes `remote.operation_failed`
-  /// (never a DSH code or message — those must not leak into replies).
-  Future<T> _guard<T>(Future<T> Function(DshClient client) run) async {
+  /// (never a DSH code or message — those must not leak into replies),
+  /// unless [mapError] translates it to a reply-safe code first.
+  Future<T> _guard<T>(
+    Future<T> Function(DshClient client) run, {
+    String Function(Object error)? mapError,
+  }) async {
     try {
       return await run(await _requireClient());
     } on LomEngineException {
@@ -78,12 +82,31 @@ class DshLomEngine implements LomEngine {
         return await run(await _requireClient());
       } on LomEngineException {
         rethrow;
-      } catch (_) {
-        throw LomEngineException('remote.operation_failed');
+      } catch (e) {
+        throw LomEngineException(
+          mapError?.call(e) ?? 'remote.operation_failed',
+        );
       }
-    } catch (_) {
-      throw LomEngineException('remote.operation_failed');
+    } catch (e) {
+      throw LomEngineException(
+        mapError?.call(e) ?? 'remote.operation_failed',
+      );
     }
+  }
+
+  /// A "no such attachment / file" DSH failure becomes
+  /// `file.attachment_missing`; anything else stays a generic failure.
+  /// The DSH code is only pattern-matched, never forwarded.
+  String _attachmentErrorCode(Object error) {
+    if (error is DshRemoteException) {
+      final code = error.code.toLowerCase();
+      if (code.contains('not-found') ||
+          code.contains('not_found') ||
+          code.contains('missing')) {
+        return 'file.attachment_missing';
+      }
+    }
+    return 'remote.operation_failed';
   }
 
   @override
@@ -258,6 +281,49 @@ class DshLomEngine implements LomEngine {
       });
 
   @override
+  Future<LomAttachmentData> attachmentBytes({
+    required String sessionId,
+    required LomAttachmentRef ref,
+  }) =>
+      _guard(
+        (client) async {
+          final (attachment: att, bytes: bytes) = await client.attachment(
+            sessionId,
+            ImageAttachment(
+              attachmentId: ref.id,
+              mediaType: ref.mediaType,
+            ),
+          );
+          return LomAttachmentData(
+            bytes: bytes,
+            mime: att.mediaType.isNotEmpty ? att.mediaType : ref.mediaType,
+            name: att.name ?? ref.name,
+          );
+        },
+        mapError: _attachmentErrorCode,
+      );
+
+  @override
+  Future<List<int>> readSessionFile(String sessionId, String path) =>
+      _guard(
+        (client) async {
+          final bytes = await client.readFileBytes(
+            sessionId,
+            path,
+            maxBytes: lomChatImageMaxBytes + 1,
+          );
+          return bytes.toList(growable: false);
+        },
+        mapError: (error) {
+          if (error is DshRemoteException &&
+              error.code.contains('too-large')) {
+            return 'file.invalid_source';
+          }
+          return _attachmentErrorCode(error);
+        },
+      );
+
+  @override
   Future<String> systemTimeZone() => detectAndroidTimeZone();
 }
 
@@ -288,6 +354,7 @@ lomMessagesFromEvents(List<SessionLogEvent> events) {
   for (final event in ordered) {
     switch (event) {
       case UserMessageEvent(:final message) when message.source.isHuman:
+        final attachments = _attachmentsFromParts(message);
         builders.add(
           _MessageBuilder(
             id: _messageId(message.id, event.seq),
@@ -295,9 +362,12 @@ lomMessagesFromEvents(List<SessionLogEvent> events) {
             text: _cap(message.text, _maxMessageTextChars),
             at: event.time.millisecondsSinceEpoch,
             seq: event.seq,
+            attachments: attachments.$1,
+            attachmentRefs: attachments.$2,
           ),
         );
       case AssistantMessageEvent(:final message):
+        final attachments = _attachmentsFromParts(message);
         builders.add(
           _MessageBuilder(
             id: _messageId(message.id, event.seq),
@@ -306,6 +376,8 @@ lomMessagesFromEvents(List<SessionLogEvent> events) {
             at: event.time.millisecondsSinceEpoch,
             seq: event.seq,
             blocks: _blocksFromParts(message),
+            attachments: attachments.$1,
+            attachmentRefs: attachments.$2,
           ),
         );
       case ToolCallEvent(:final callId, :final name, :final arguments):
@@ -431,6 +503,48 @@ LomChatBlock? _findBlock(List<_MessageBuilder> builders, String callId) {
       _ => null, // 'forked' / unknown: not an outcome for the desktop.
     };
 
+/// Attachment file names + fetchable references from a message's parts.
+///
+/// Only parts with a non-empty attachment id are kept: without an id the
+/// desktop could name the attachment in `chat.read` but `chat.file`
+/// could never fetch it, so the pair is dropped together.
+(List<String>, List<LomAttachmentRef>) _attachmentsFromParts(
+  Message message,
+) {
+  final names = <String>[];
+  final refs = <LomAttachmentRef>[];
+  for (final part in message.parts) {
+    switch (part) {
+      case ImagePart(:final attachment):
+        if (attachment.attachmentId.isEmpty) break;
+        names.add(attachment.name ?? 'image');
+        refs.add(
+          LomAttachmentRef(
+            id: attachment.attachmentId,
+            mediaType: attachment.mediaType,
+            name: attachment.name ?? 'image',
+            kind: 'image',
+          ),
+        );
+      case FilePart(:final attachment):
+        final id = attachment.attachmentId;
+        if (id == null || id.isEmpty) break;
+        names.add(attachment.name ?? 'file');
+        refs.add(
+          LomAttachmentRef(
+            id: id,
+            mediaType: 'application/octet-stream',
+            name: attachment.name ?? 'file',
+            kind: 'file',
+          ),
+        );
+      default:
+        break;
+    }
+  }
+  return (names, refs);
+}
+
 class _MessageBuilder {
   _MessageBuilder({
     required this.id,
@@ -439,7 +553,11 @@ class _MessageBuilder {
     required this.at,
     required this.seq,
     List<LomChatBlock>? blocks,
-  }) : blocks = blocks ?? [];
+    List<String>? attachments,
+    List<LomAttachmentRef>? attachmentRefs,
+  })  : blocks = blocks ?? [],
+        attachments = attachments ?? [],
+        attachmentRefs = attachmentRefs ?? [];
 
   final String id;
   final String role;
@@ -447,6 +565,8 @@ class _MessageBuilder {
   final int at;
   final int seq;
   final List<LomChatBlock> blocks;
+  final List<String> attachments;
+  final List<LomAttachmentRef> attachmentRefs;
 
   LomChatMessage build() => LomChatMessage(
         id: id,
@@ -455,6 +575,8 @@ class _MessageBuilder {
         at: at,
         seq: seq,
         blocks: List.unmodifiable(blocks),
+        attachments: List.unmodifiable(attachments),
+        attachmentRefs: List.unmodifiable(attachmentRefs),
       );
 }
 
