@@ -428,6 +428,25 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
         null
     }
 
+    /**
+     * Launchable apps for Lom `apps.list` (Dart `PhoneChannel.listApps`).
+     * Only apps with a launcher intent, sorted by label. No other app
+     * data is read.
+     */
+    fun listLaunchableApps(): List<Map<String, String>> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val infos = try {
+            app.packageManager.queryIntentActivities(intent, 0)
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        return infos.mapNotNull { info ->
+            val pkg = info.activityInfo.packageName
+            val label = label(pkg) ?: return@mapNotNull null
+            mapOf("package" to pkg, "label" to label)
+        }.sortedBy { it["label"] }
+    }
+
     // ── Engine lifecycle (RuntimeController's worker thread) ───────────────────────
 
     /**

@@ -19,11 +19,13 @@
 /// 9. `apps.list` — `apps_adapter.dart` (later PR; native bridge pending).
 library;
 
+import 'apps.dart';
 import 'engine.dart';
 import 'file_store.dart';
 import 'phase4_store.dart';
 import 'rpc_errors.dart';
 import 'schedule_write.dart';
+import 'screen.dart';
 import 'skills.dart';
 
 /// Optional-method handlers. Constructed once per relay session in
@@ -36,6 +38,8 @@ class LomOptionalMethods {
     this.files,
     this.scheduleWrite,
     this.skills,
+    this.screen,
+    this.apps,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -55,6 +59,14 @@ class LomOptionalMethods {
 
   /// Skill registry, or null when it is not wired.
   final LomSkillRegistry? skills;
+
+  /// Screen handler, or null while the native bridge is missing (see
+  /// `screen.dart`): the methods stay `remote.method_unknown` and out
+  /// of `device.capabilities` until a `LomScreenAdapter` exists.
+  final LomScreenHandler? screen;
+
+  /// Apps handler, or null when it is not wired.
+  final LomAppsHandler? apps;
 
   final DateTime Function() _now;
 
@@ -90,6 +102,12 @@ class LomOptionalMethods {
           'skills.toggle',
           'skills.delete',
         ],
+        if (screen != null) ...[
+          'screen.capture',
+          'screen.tree',
+          'screen.control',
+        ],
+        if (apps != null) ...['apps.list'],
       };
 
   /// Pinned session ids, for the `chat.list` overlay (the engine has no
@@ -139,6 +157,20 @@ class LomOptionalMethods {
         final registry = skills;
         if (registry == null) throw LomRpcException('remote.method_unknown');
         return registry.handle(method, payload, sender);
+      case 'screen.capture':
+      case 'screen.tree':
+      case 'screen.control':
+        final screenHandler = screen;
+        if (screenHandler == null) {
+          throw LomRpcException('remote.method_unknown');
+        }
+        return screenHandler.handle(method, payload, sender);
+      case 'apps.list':
+        final appsHandler = apps;
+        if (appsHandler == null) {
+          throw LomRpcException('remote.method_unknown');
+        }
+        return appsHandler.list();
       default:
         throw LomRpcException('remote.method_unknown');
     }

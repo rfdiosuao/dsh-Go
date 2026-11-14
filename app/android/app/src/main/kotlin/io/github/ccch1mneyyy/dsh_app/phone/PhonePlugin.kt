@@ -190,6 +190,7 @@ class PhonePlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandle
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "status" -> control.status { complete(result, it) }
+            "lomListApps" -> async(result, shortControl = true) { control.listLaunchableApps() }
             "androidShellStatus" -> async(result, shortControl = true) { control.shell.status() }
             "configureAndroidShell" -> {
                 val args = call.arguments as? Map<*, *>
