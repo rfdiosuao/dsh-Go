@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:dsh_app/lom/lom_phone.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -143,6 +144,67 @@ class _FakeEngine implements LomEngine {
   @override
   Future<List<LomSchedule>> scheduleCatalog() async => schedules;
 
+  // Schedule write side (Phase 4): the fake applies edits to the stored
+  // list and bumps the record, so the revision changes like a real edit.
+  int scheduleVersion = 0;
+  int runCount = 0;
+  bool throwOnRun = false;
+
+  @override
+  Future<LomSchedule> updateScheduleTask(
+    LomSchedule task, {
+    String? title,
+    String? prompt,
+    String? freq,
+    String? time,
+    List<int>? days,
+    int? everyMinutes,
+  }) async {
+    final index = schedules.indexWhere((s) => s.id == task.id);
+    if (index < 0) throw LomEngineException('schedule.missing');
+    final old = schedules[index];
+    final updated = LomSchedule(
+      id: old.id,
+      title: title ?? old.title,
+      prompt: prompt ?? old.prompt,
+      kind: freq == null
+          ? old.kind
+          : switch (freq) {
+              'once' => 'at',
+              'daily' => 'daily',
+              'weekly' => 'weekly',
+              'interval' => 'every',
+              _ => old.kind,
+            },
+      active: old.active,
+      sessionId: old.sessionId,
+      scheduledAtMs: freq == 'once' && time != null
+          ? DateTime.parse(time).millisecondsSinceEpoch
+          : old.scheduledAtMs,
+      everySeconds:
+          freq == 'interval' && everyMinutes != null ? everyMinutes * 60 : old.everySeconds,
+      time: freq == null ? old.time : time,
+      timeZone: old.timeZone,
+      weekdays: days ?? old.weekdays,
+      recordJson: jsonEncode({'id': old.id, 'v': ++scheduleVersion}),
+    );
+    schedules[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<bool> deleteScheduleTask(LomSchedule task) async {
+    final had = schedules.any((s) => s.id == task.id);
+    schedules.removeWhere((s) => s.id == task.id);
+    return had;
+  }
+
+  @override
+  Future<void> runScheduleTask(LomSchedule task) async {
+    runCount++;
+    if (throwOnRun) throw LomEngineException('remote.operation_failed');
+  }
+
   @override
   Future<String> systemTimeZone() async => timezone;
 
@@ -247,6 +309,11 @@ class _Harness {
         pins: LomPinStore(store),
         deviceNames: LomDeviceNameStore(store),
         files: fileStore,
+        scheduleWrite: LomScheduleWriteHandler(
+          engine: engine,
+          receipts: LomOperationReceiptStore(store),
+          now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
+        ),
         now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
       ),
       now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
@@ -817,10 +884,284 @@ void main() {
       expect(items[0]['freq'], 'daily');
       expect(items[0]['time'], '08:30');
       expect(items[0]['enabled'], 'true');
-      expect(items[0]['editable'], 'false');
+      expect(items[0]['editable'], 'true');
       expect(items[1]['freq'], 'interval');
       expect(items[1]['every'], '60');
       expect(items[1]['enabled'], 'false');
+      expect(items[1]['editable'], 'true');
+    });
+
+    // --- schedule.* write side (Phase 4) --------------------------
+
+    const dailyId = 'task-daily-000001';
+    const dailyRecord = '{"id":"task-daily-000001","v":0}';
+
+    LomSchedule dailyTask() => const LomSchedule(
+          id: dailyId,
+          title: '晨报',
+          prompt: '汇报',
+          kind: 'daily',
+          active: true,
+          sessionId: 's-1',
+          time: '08:30:00',
+          weekdays: [],
+          recordJson: dailyRecord,
+        );
+
+    String revOf(String recordJson) =>
+        crypto.sha256.convert(utf8.encode(recordJson)).toString();
+
+    Map<String, Object?> savePayload({
+      String id = dailyId,
+      String? revision,
+      String name = '晨报',
+      String prompt = '汇报',
+      String freq = 'daily',
+      String time = '08:30',
+      String days = '[]',
+      String every = '',
+      String enabled = 'true',
+      String sessionId = 's-1',
+    }) => {
+          'id': id,
+          'revision': revision ?? revOf(dailyRecord),
+          'name': name,
+          'prompt': prompt,
+          'freq': freq,
+          'time': time,
+          'days': days,
+          'every': every,
+          'enabled': enabled,
+          'session_id': sessionId,
+        };
+
+    test('schedule.save edits title and prompt with CAS', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s-1'] = _FakeSession();
+      h.engine.schedules = [dailyTask()];
+      final (_, saved, error) = await h.reply(
+        await h.call('schedule.save', savePayload(
+          name: '晚报',
+          prompt: '总结',
+          time: '21:00',
+        )),
+      );
+      expect(error, '');
+      expect(saved['name'], '晚报');
+      expect(saved['prompt'], '总结');
+      expect(saved['time'], '21:00');
+      expect(saved['revision'], isNot(revOf(dailyRecord)));
+      expect(h.engine.schedules.single.title, '晚报');
+    });
+
+    test('schedule.save rejects a stale revision', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s-1'] = _FakeSession();
+      h.engine.schedules = [dailyTask()];
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.save', savePayload(revision: 'deadbeef')),
+      );
+      expect(error, 'sync.conflict');
+    });
+
+    test('schedule.save refuses new-task creation', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s-1'] = _FakeSession();
+      h.engine.schedules = [dailyTask()];
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.save', savePayload(
+          id: 'task-new-00000001',
+          revision: '',
+        )),
+      );
+      expect(error, 'schedule.invalid_request');
+    });
+
+    test('schedule.save replays identical content, refuses reuse',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s-1'] = _FakeSession();
+      h.engine.schedules = [dailyTask()];
+      final (_, replayed, error) = await h.reply(
+        await h.call('schedule.save', savePayload(revision: '')),
+      );
+      expect(error, '');
+      expect(replayed['name'], '晨报');
+      expect(replayed['revision'], revOf(dailyRecord));
+      final (_, _, error2) = await h.reply(
+        await h.call('schedule.save', savePayload(
+          revision: '',
+          name: '另一份',
+        )),
+      );
+      expect(error2, 'schedule.id_reused');
+    });
+
+    test('schedule.save refuses custom freq and a past once time',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.save', savePayload(freq: 'custom')),
+      );
+      expect(error, 'schedule.edit_on_phone');
+      final (_, _, error2) = await h.reply(
+        await h.call('schedule.save', savePayload(
+          freq: 'once',
+          time: '2020-01-01T08:00',
+        )),
+      );
+      expect(error2, 'schedule.time_in_past');
+    });
+
+    test('schedule.save refuses to flip enabled', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.sessions['s-1'] = _FakeSession();
+      h.engine.schedules = [dailyTask()];
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.save', savePayload(enabled: 'false')),
+      );
+      expect(error, 'schedule.edit_on_phone');
+    });
+
+    test('schedule.delete removes the task; missing still answers deleted',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      final (_, deleted, error) = await h.reply(
+        await h.call('schedule.delete', {
+          'id': dailyId,
+          'revision': revOf(dailyRecord),
+        }),
+      );
+      expect(error, '');
+      expect(deleted['status'], 'deleted');
+      expect(h.engine.schedules, isEmpty);
+      final (_, deleted2, error2) = await h.reply(
+        await h.call('schedule.delete', {
+          'id': dailyId,
+          'revision': '',
+        }),
+      );
+      expect(error2, '');
+      expect(deleted2['status'], 'deleted');
+    });
+
+    test('schedule.delete rejects a stale revision', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.delete', {
+          'id': dailyId,
+          'revision': 'deadbeef',
+        }),
+      );
+      expect(error, 'sync.conflict');
+    });
+
+    test('schedule.run accepts and replays the receipt without re-running',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      const requestId = 'req-run-0000000001';
+      final (_, accepted, error) = await h.reply(
+        await h.call('schedule.run', {
+          'id': dailyId,
+          'request_id': requestId,
+        }),
+      );
+      expect(error, '');
+      expect(accepted['status'], 'accepted');
+      expect(accepted['session_id'], 's-1');
+      expect(h.engine.runCount, 1);
+      final (_, replayed, error2) = await h.reply(
+        await h.call('schedule.run', {
+          'id': dailyId,
+          'request_id': requestId,
+        }),
+      );
+      expect(error2, '');
+      expect(replayed['status'], 'accepted');
+      expect(h.engine.runCount, 1);
+    });
+
+    test('schedule.run refuses a reused request_id for another task',
+        () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      const requestId = 'req-run-0000000002';
+      await h.reply(await h.call('schedule.run', {
+        'id': dailyId,
+        'request_id': requestId,
+      }));
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.run', {
+          'id': 'task-other-000001',
+          'request_id': requestId,
+        }),
+      );
+      expect(error, 'schedule.id_reused');
+    });
+
+    test('schedule.run reports a missing task', () async {
+      final h = _Harness();
+      await h.init();
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.run', {
+          'id': 'task-missing-00001',
+          'request_id': 'req-run-0000000003',
+        }),
+      );
+      expect(error, 'schedule.missing');
+    });
+
+    test('schedule.run failure leaves the outcome unknown', () async {
+      final h = _Harness();
+      await h.init();
+      h.engine.schedules = [dailyTask()];
+      h.engine.throwOnRun = true;
+      const requestId = 'req-run-0000000004';
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.run', {
+          'id': dailyId,
+          'request_id': requestId,
+        }),
+      );
+      expect(error, 'remote.operation_failed');
+      // The retry replays the dispatching receipt instead of running
+      // the task a second time.
+      final (_, replayed, error2) = await h.reply(
+        await h.call('schedule.run', {
+          'id': dailyId,
+          'request_id': requestId,
+        }),
+      );
+      expect(error2, '');
+      expect(replayed['status'], 'dispatching');
+      expect(h.engine.runCount, 1);
+    });
+
+    test('schedule.toggle stays method_unknown', () async {
+      final h = _Harness();
+      await h.init();
+      final (_, _, error) = await h.reply(
+        await h.call('schedule.toggle', {
+          'id': dailyId,
+          'revision': revOf(dailyRecord),
+          'enabled': 'false',
+        }),
+      );
+      expect(error, 'remote.method_unknown');
     });
 
     test('recoverInterrupted marks running sessions interrupted', () async {

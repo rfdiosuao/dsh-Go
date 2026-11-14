@@ -281,6 +281,52 @@ class DshLomEngine implements LomEngine {
       });
 
   @override
+  Future<LomSchedule> updateScheduleTask(
+    LomSchedule task, {
+    String? title,
+    String? prompt,
+    String? freq,
+    String? time,
+    List<int>? days,
+    int? everyMinutes,
+  }) =>
+      _guard((client) async {
+        final original = _taskFromLom(task);
+        ScheduleTiming? timing;
+        if (freq != null) {
+          timing = _timingFor(
+            freq: freq,
+            time: time ?? '',
+            days: days ?? const [],
+            everyMinutes: everyMinutes ?? 0,
+            timeZone: await systemTimeZone(),
+          );
+        }
+        final update = await client.editSchedule(
+          original,
+          title: title,
+          prompt: prompt,
+          timing: timing,
+        );
+        if (!update.updated || update.task == null) {
+          throw LomEngineException(_scheduleUpdateCode(update.code));
+        }
+        return lomScheduleFromTask(update.task!);
+      });
+
+  @override
+  Future<bool> deleteScheduleTask(LomSchedule task) =>
+      _guard((client) async => client.deleteSchedule(_taskFromLom(task)));
+
+  @override
+  Future<void> runScheduleTask(LomSchedule task) => _guard((client) async {
+        await client.runScheduledTask(
+          _taskFromLom(task),
+          timeZone: await systemTimeZone(),
+        );
+      });
+
+  @override
   Future<LomAttachmentData> attachmentBytes({
     required String sessionId,
     required LomAttachmentRef ref,
@@ -581,6 +627,64 @@ class _MessageBuilder {
 }
 
 // --------------------------------------------------------------- schedules
+
+/// Rebuilds the `ScheduleTask` a [LomSchedule] was mapped from, so the
+/// edit/delete/run calls — which need the stored record (`expected`) and
+/// the target-protocol revision — can run. The record JSON is exactly
+/// what `ScheduleTask.fromJson` stored, minus the fields it strips.
+ScheduleTask _taskFromLom(LomSchedule task) {
+  final record = jsonDecode(task.recordJson);
+  if (record is! Map<String, dynamic>) {
+    throw LomEngineException('schedule.missing');
+  }
+  final rebuilt = ScheduleTask.fromJson({
+    ...record,
+    'sessionId': task.sessionId,
+    'status': task.active ? 'active' : 'inactive',
+  });
+  if (rebuilt == null) throw LomEngineException('schedule.missing');
+  return rebuilt;
+}
+
+/// Builds the `ScheduleTiming` for a requested Lom trigger. `time` is
+/// `HH:mm` (daily/weekly) or `yyyy-MM-ddTHH:mm` (once); `everyMinutes`
+/// is the Lom `every` field.
+ScheduleTiming _timingFor({
+  required String freq,
+  required String time,
+  required List<int> days,
+  required int everyMinutes,
+  required String timeZone,
+}) =>
+    switch (freq) {
+      'once' => AtTiming(
+          date: time.substring(0, 10),
+          time: '${time.substring(11)}:00',
+          timeZone: timeZone,
+        ),
+      'daily' => DailyTiming(time: '$time:00', timeZone: timeZone),
+      'weekly' => WeeklyTiming(
+          time: '$time:00',
+          timeZone: timeZone,
+          weekdays: days,
+        ),
+      'interval' => EveryTiming(everyMinutes * 60),
+      _ => throw LomEngineException('schedule.unsupported_frequency'),
+    };
+
+/// Maps a DSH schedule-update rejection to a reply-safe Lom code. The
+/// DSH code is only pattern-matched, never forwarded.
+String _scheduleUpdateCode(String? code) {
+  if (code == null) return 'remote.operation_failed';
+  if (code.contains('conflict')) return 'sync.conflict';
+  if (code.contains('not_found')) return 'schedule.missing';
+  if (code.contains('not_future')) return 'schedule.time_in_past';
+  if (code.contains('ended')) return 'schedule.edit_on_phone';
+  if (code.contains('invalid_rule') || code.contains('frequency')) {
+    return 'schedule.unsupported_frequency';
+  }
+  return 'schedule.invalid_content';
+}
 
 /// Maps one catalog task to the dispatcher's [LomSchedule] DTO.
 LomSchedule lomScheduleFromTask(ScheduleTask task) => LomSchedule(

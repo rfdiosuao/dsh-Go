@@ -206,7 +206,7 @@ void main() {
       expect(dailyJson['time'], '08:30');
       expect(dailyJson['enabled'], 'true');
       expect(dailyJson['session_id'], 's1');
-      expect(dailyJson['editable'], 'false');
+      expect(dailyJson['editable'], 'true');
 
       final weekly = lomPhoneScheduleJson(
         lomScheduleFromTask(

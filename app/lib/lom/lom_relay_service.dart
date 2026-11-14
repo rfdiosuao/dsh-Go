@@ -37,6 +37,7 @@ import 'platform_adapters.dart';
 import 'relay_client.dart';
 import 'rpc_dispatcher.dart';
 import 'rpc_store.dart';
+import 'schedule_write.dart';
 
 class LomRelayState {
   const LomRelayState({
@@ -198,6 +199,10 @@ class LomRelayController extends Notifier<LomRelayState> {
         pins: LomPinStore(secrets),
         deviceNames: LomDeviceNameStore(secrets),
         files: fileStore,
+        scheduleWrite: LomScheduleWriteHandler(
+          engine: engine,
+          receipts: LomOperationReceiptStore(secrets),
+        ),
       ),
     );
     // A restart must never re-run an accepted-but-unfinished task: mark

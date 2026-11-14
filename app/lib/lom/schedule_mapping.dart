@@ -1,8 +1,10 @@
 /// Maps a DSH schedule to a Lom `PhoneSchedule` (doc §07 §10).
 ///
 /// All fields are strings; `items` itself is JSON text. `editable` is
-/// `"false"`: the write side (`schedule.save` / `toggle` / `delete` /
-/// `run`) is Phase 4, so the desktop must not offer editing.
+/// `"true"` for the trigger shapes the write side can edit (`once` /
+/// `daily` / `weekly` / `interval`) — `false` for `custom` triggers the
+/// desktop cannot express, and for one-shot tasks that already fired
+/// (the Host refuses them as `schedule_ended`).
 library;
 
 import 'dart:convert';
@@ -52,7 +54,9 @@ Map<String, Object?> lomPhoneScheduleJson(LomSchedule task) {
         ? ''
         : '${task.lastDeliveredAtMs!}',
     'runs': '[]',
-    'editable': 'false',
+    'editable': freq == 'custom' || (freq == 'once' && !task.active)
+        ? 'false'
+        : 'true',
   };
 }
 

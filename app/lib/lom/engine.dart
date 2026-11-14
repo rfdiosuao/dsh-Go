@@ -5,6 +5,8 @@
 /// to the local engine connection.
 library;
 
+import 'dart:convert';
+
 /// One content block of an assistant message (doc §07 `chat.read`).
 class LomChatBlock {
   const LomChatBlock({
@@ -219,6 +221,20 @@ class LomSchedule {
 
   /// The stored record as JSON text; its SHA-256 is the `revision`.
   final String recordJson;
+
+  /// Whether this task uses the 0.2.2 target protocol (its record has a
+  /// `target` object) rather than a plain session id. Target tasks run
+  /// through the Host's `schedule/*` RPCs; legacy tasks run by prompting
+  /// their session.
+  bool get usesTargetProtocol {
+    try {
+      final decoded = jsonDecode(recordJson);
+      return decoded is Map<String, dynamic> &&
+          decoded['target'] is Map<String, dynamic>;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 /// The DSH engine surface the dispatcher needs. Every method throws
@@ -321,6 +337,31 @@ abstract class LomEngine {
 
   /// The engine's schedule catalog (read-only).
   Future<List<LomSchedule>> scheduleCatalog();
+
+  /// Edits an existing schedule (`schedule/update` with the stored
+  /// record as `expected`). Only the non-null fields change; [freq] (with
+  /// [time] / [days] / [everyMinutes]) replaces the timing rule.
+  /// Returns the updated task. Throws [LomEngineException] with
+  /// `sync.conflict` (record changed), `schedule.missing`,
+  /// `schedule.time_in_past`, `schedule.edit_on_phone`,
+  /// `schedule.unsupported_frequency` or `schedule.invalid_content`.
+  Future<LomSchedule> updateScheduleTask(
+    LomSchedule task, {
+    String? title,
+    String? prompt,
+    String? freq,
+    String? time,
+    List<int>? days,
+    int? everyMinutes,
+  });
+
+  /// Deletes a schedule (hard delete, history included). Returns false
+  /// when the task was already gone.
+  Future<bool> deleteScheduleTask(LomSchedule task);
+
+  /// Runs a schedule now, through the Host's run semantics. The caller
+  /// (schedule.run) persists the dispatching receipt first.
+  Future<void> runScheduleTask(LomSchedule task);
 
   /// The phone's IANA time zone (Android system zone, offset fallback).
   Future<String> systemTimeZone();
