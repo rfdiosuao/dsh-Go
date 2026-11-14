@@ -1258,6 +1258,27 @@ class PhoneChannel {
     }
   }
 
+  /// Launchable apps for Lom `apps.list` (native `lomListApps`).
+  /// Returns [] when the native side is missing or refuses.
+  Future<List<({String packageName, String label})>> listApps() async {
+    try {
+      final raw = await _methods.invokeMethod<List<Object?>>('lomListApps');
+      if (raw == null) return [];
+      return [
+        for (final item in raw)
+          if (item is Map)
+            (
+              packageName: '${item['package']}',
+              label: '${item['label']}',
+            ),
+      ];
+    } on MissingPluginException {
+      return [];
+    } on PlatformException {
+      return [];
+    }
+  }
+
   Future<bool> setEnabled(bool enabled) => _bool('setEnabled', {'enabled': enabled});
 
   /// Explicit preference only; native snapshots it when a new background driver is created.

@@ -73,6 +73,7 @@ class LomOperationReceipt {
     required this.status,
     required this.sessionId,
     required this.updatedAtMs,
+    this.detail = '',
   });
 
   factory LomOperationReceipt.fromJson(Map<String, Object?> json) =>
@@ -82,6 +83,7 @@ class LomOperationReceipt {
         status: json['status'] as String? ?? 'dispatching',
         sessionId: json['session_id'] as String? ?? '',
         updatedAtMs: json['updated_at_ms'] as int? ?? 0,
+        detail: json['detail'] as String? ?? '',
       );
 
   Map<String, Object?> toJson() => {
@@ -90,6 +92,7 @@ class LomOperationReceipt {
         'status': status,
         'session_id': sessionId,
         'updated_at_ms': updatedAtMs,
+        'detail': detail,
       };
 
   /// The idempotency key (`schedule.run:<request_id>`,
@@ -107,6 +110,11 @@ class LomOperationReceipt {
   /// Session the operation ran in, when known.
   final String sessionId;
   final int updatedAtMs;
+
+  /// The stored reply for a completed operation, as JSON text
+  /// (`screen.control` replays the original `{status, action, at,
+  /// confirmation}` from it; other operations leave it empty).
+  final String detail;
 }
 
 /// Persistent operation receipts, keyed by idempotency key.

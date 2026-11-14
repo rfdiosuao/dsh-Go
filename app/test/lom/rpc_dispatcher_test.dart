@@ -272,6 +272,77 @@ class _FakeGallerySaver implements LomGallerySaver {
       uri;
 }
 
+class _FakeScreenAdapter implements LomScreenAdapter {
+  LomScreenInfo infoValue = const LomScreenInfo(
+    width: 1080,
+    height: 2400,
+    a11yEnabled: true,
+    serviceConnected: true,
+    metered: false,
+  );
+  List<int> jpegBytes = List<int>.filled(1000, 0xFF);
+  LomScreenTree treeValue = const LomScreenTree(
+    package: 'com.example.app',
+    nodes: [],
+  );
+  LomRpcException? throwOnControl;
+  int captureCount = 0;
+  int controlCount = 0;
+
+  @override
+  Future<LomScreenInfo> info() async => infoValue;
+
+  @override
+  Future<LomScreenCapture> capture({
+    required String quality,
+    required bool cellularCap,
+  }) async {
+    captureCount++;
+    return LomScreenCapture(
+      jpegBytes: jpegBytes,
+      width: 1080,
+      height: 2400,
+      capturedAtMs: _Harness.nowMs,
+    );
+  }
+
+  @override
+  Future<LomScreenTree> tree() async => treeValue;
+
+  @override
+  Future<LomScreenControlResult> control(LomScreenAction action) async {
+    controlCount++;
+    final failure = throwOnControl;
+    if (failure != null) throw failure;
+    final label = switch (action.action) {
+      'tap' => 'tap (${action.x}, ${action.y})',
+      'swipe' =>
+        'swipe (${action.x}, ${action.y}) to (${action.x2}, ${action.y2})',
+      'type' => 'type ${action.text.length} chars',
+      'open_app' => 'open ${action.packageName}',
+      _ => action.action,
+    };
+    return LomScreenControlResult(
+      atMs: _Harness.nowMs,
+      confirmation: label,
+    );
+  }
+}
+
+class _FakeAppsAdapter implements LomAppsAdapter {
+  List<LomAppInfo> apps = const [
+    LomAppInfo(packageName: 'com.example.a', label: 'A'),
+    LomAppInfo(packageName: 'com.example.b', label: 'B'),
+  ];
+  bool a11y = true;
+
+  @override
+  Future<List<LomAppInfo>> listApps() async => apps;
+
+  @override
+  Future<bool> accessibilityOk() async => a11y;
+}
+
 class _Harness {
   static const nowMs = 1767222000000;
 
@@ -283,9 +354,14 @@ class _Harness {
   late final LomChatReceiptStore receipts;
   late final LomFileStore fileStore;
   final trusted = <String>{};
+  final slept = <Duration>[];
   var _ids = 0;
 
-  Future<void> init({LomFileStorage? fileStorage}) async {
+  Future<void> init({
+    LomFileStorage? fileStorage,
+    LomScreenAdapter? screenAdapter,
+    LomAppsAdapter? appsAdapter,
+  }) async {
     phone = await LomIdentity.generate();
     desktop = await LomIdentity.generate();
     trusted.add(desktop.keys);
@@ -320,6 +396,22 @@ class _Harness {
           files: fileStore,
           now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
         ),
+        screen: screenAdapter == null
+            ? null
+            : LomScreenHandler(
+                adapter: screenAdapter,
+                receipts: LomOperationReceiptStore(store),
+                now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
+                sleep: (d) async {
+                  slept.add(d);
+                },
+              ),
+        apps: appsAdapter == null
+            ? null
+            : LomAppsHandler(
+                adapter: appsAdapter,
+                now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
+              ),
         now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
       ),
       now: () => DateTime.fromMillisecondsSinceEpoch(nowMs),
@@ -1536,6 +1628,286 @@ void main() {
       final methods = (payload['methods'] as List).cast<String>();
       expect(methods, containsAll(['skills.list', 'skills.install']));
       expect(methods, isNot(contains('screen.capture')));
+    });
+
+    // --- screen.* / apps.list (Phase 4) ----------------------------
+
+    test('screen.* and apps.list stay method_unknown without adapters',
+        () async {
+      final h = _Harness();
+      await h.init();
+      for (final method in [
+        'screen.capture',
+        'screen.tree',
+        'screen.control',
+        'apps.list',
+      ]) {
+        final (_, _, error) = await h.reply(await h.call(method, {}));
+        expect(error, 'remote.method_unknown', reason: method);
+      }
+      final (_, payload, _) =
+          await h.reply(await h.call('device.capabilities', {}));
+      final methods = (payload['methods'] as List).cast<String>();
+      expect(methods, isNot(contains('screen.capture')));
+      expect(methods, isNot(contains('apps.list')));
+    });
+
+    test('screen.capture returns the JPEG with original dimensions',
+        () async {
+      final screen = _FakeScreenAdapter();
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      final (_, shot, error) = await h.reply(
+        await h.call('screen.capture', {
+          'quality': 'balanced',
+          'cellular_cap': 'false',
+        }),
+      );
+      expect(error, '');
+      expect(shot['image'], base64Encode(screen.jpegBytes));
+      expect(shot['mime'], 'image/jpeg');
+      expect(shot['width'], '1080');
+      expect(shot['height'], '2400');
+      expect(shot['captured_at'], '${_Harness.nowMs}');
+      expect(screen.captureCount, 1);
+    });
+
+    test('screen.capture refuses without permission', () async {
+      final screen = _FakeScreenAdapter()
+        ..infoValue = const LomScreenInfo(
+          width: 1080,
+          height: 2400,
+          a11yEnabled: false,
+          serviceConnected: false,
+          metered: false,
+        );
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      final (_, _, error) = await h.reply(
+        await h.call('screen.capture', {
+          'quality': 'balanced',
+          'cellular_cap': 'false',
+        }),
+      );
+      expect(error, 'screen.permission_required');
+    });
+
+    test('screen.capture waits out the minimum interval', () async {
+      final screen = _FakeScreenAdapter();
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      await h.reply(await h.call('screen.capture', {
+        'quality': 'balanced',
+        'cellular_cap': 'false',
+      }));
+      expect(h.slept, isEmpty);
+      await h.reply(await h.call('screen.capture', {
+        'quality': 'balanced',
+        'cellular_cap': 'false',
+      }));
+      expect(h.slept, [const Duration(milliseconds: 400)]);
+      expect(screen.captureCount, 2);
+    });
+
+    test('screen.capture refuses an over-large frame and bad quality',
+        () async {
+      final screen = _FakeScreenAdapter()
+        ..jpegBytes = List<int>.filled(300000, 0);
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      final (_, _, error) = await h.reply(
+        await h.call('screen.capture', {
+          'quality': 'balanced',
+          'cellular_cap': 'false',
+        }),
+      );
+      expect(error, 'screen.frame_too_large');
+      final (_, _, error2) = await h.reply(
+        await h.call('screen.capture', {
+          'quality': 'ultra',
+          'cellular_cap': 'false',
+        }),
+      );
+      expect(error2, 'screen.invalid_request');
+    });
+
+    test('screen.tree caps nodes, masks passwords, truncates text',
+        () async {
+      final screen = _FakeScreenAdapter()
+        ..treeValue = LomScreenTree(
+          package: 'com.example.app',
+          nodes: [
+            const LomScreenNode(
+              text: 'hunter2',
+              resource: 'id/password',
+              bounds: [0, 0, 100, 50],
+              editable: true,
+              isPassword: true,
+            ),
+            LomScreenNode(text: 'x' * 200, bounds: [0, 0, 100, 50]),
+            for (var i = 0; i < 300; i++)
+              LomScreenNode(text: 'n$i', bounds: [0, 0, 10, 10]),
+          ],
+        );
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      final (_, tree, error) = await h.reply(
+        await h.call('screen.tree', {}),
+      );
+      expect(error, '');
+      expect(tree['package'], 'com.example.app');
+      final nodes = tree['nodes'] as List;
+      expect(nodes.length, 300);
+      expect(tree['truncated'], true);
+      expect(nodes[0]['text'], '[password]');
+      expect((nodes[1]['text'] as String).length, 160);
+    });
+
+    test('screen.control completes and replays the receipt', () async {
+      final screen = _FakeScreenAdapter();
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      const requestId = 'req-ctrl-0000000001';
+      final (_, done, error) = await h.reply(
+        await h.call('screen.control', {
+          'request_id': requestId,
+          'action': 'tap',
+          'x': '100',
+          'y': '200',
+          'x2': '',
+          'y2': '',
+          'text': '',
+          'package_name': '',
+        }),
+      );
+      expect(error, '');
+      expect(done['status'], 'completed');
+      expect(done['action'], 'tap');
+      expect(done['at'], _Harness.nowMs);
+      expect(done['confirmation'], 'tap (100, 200)');
+      expect(screen.controlCount, 1);
+      final (_, replayed, error2) = await h.reply(
+        await h.call('screen.control', {
+          'request_id': requestId,
+          'action': 'tap',
+          'x': '100',
+          'y': '200',
+          'x2': '',
+          'y2': '',
+          'text': '',
+          'package_name': '',
+        }),
+      );
+      expect(error2, '');
+      expect(replayed, done);
+      expect(screen.controlCount, 1);
+    });
+
+    test('screen.control refuses reuse and reports unknown', () async {
+      final screen = _FakeScreenAdapter()
+        ..throwOnControl = LomRpcException('screen.action_unconfirmed');
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      const requestId = 'req-ctrl-0000000002';
+      Map<String, Object?> control({String x = '100'}) => {
+            'request_id': requestId,
+            'action': 'tap',
+            'x': x,
+            'y': '200',
+            'x2': '',
+            'y2': '',
+            'text': '',
+            'package_name': '',
+          };
+      final (_, _, error) = await h.reply(
+        await h.call('screen.control', control()),
+      );
+      expect(error, 'screen.action_unconfirmed');
+      expect(screen.controlCount, 1);
+      // Same content: the receipt is still unknown — never re-execute.
+      final (_, _, error2) = await h.reply(
+        await h.call('screen.control', control()),
+      );
+      expect(error2, 'screen.previous_result_unknown');
+      expect(screen.controlCount, 1);
+      // Different content under the same key: id reuse.
+      final (_, _, error3) = await h.reply(
+        await h.call('screen.control', control(x: '150')),
+      );
+      expect(error3, 'screen.id_reused');
+      expect(screen.controlCount, 1);
+    });
+
+    test('screen.control validates actions and coordinates', () async {
+      final screen = _FakeScreenAdapter();
+      final h = _Harness();
+      await h.init(screenAdapter: screen);
+      Map<String, Object?> control(
+        String requestId,
+        String action, {
+        String x = '',
+        String y = '',
+        String text = '',
+        String packageName = '',
+      }) => {
+            'request_id': requestId,
+            'action': action,
+            'x': x,
+            'y': y,
+            'x2': '',
+            'y2': '',
+            'text': text,
+            'package_name': packageName,
+          };
+      final (_, _, badAction) = await h.reply(
+        await h.call('screen.control',
+            control('req-ctrl-0000000003', 'pinch')),
+      );
+      expect(badAction, 'screen.invalid_action');
+      final (_, _, badCoord) = await h.reply(
+        await h.call('screen.control',
+            control('req-ctrl-0000000004', 'tap', x: '1080', y: '10')),
+      );
+      expect(badCoord, 'screen.invalid_coordinate');
+      final (_, _, tooLong) = await h.reply(
+        await h.call('screen.control',
+            control('req-ctrl-0000000005', 'type', text: 'x' * 8001)),
+      );
+      expect(tooLong, 'screen.text_too_long');
+      final (_, _, badPackage) = await h.reply(
+        await h.call('screen.control',
+            control('req-ctrl-0000000006', 'open_app',
+                packageName: 'not a package')),
+      );
+      expect(badPackage, 'screen.invalid_package');
+      screen.throwOnControl = LomRpcException('screen.app_missing');
+      final (_, _, missing) = await h.reply(
+        await h.call('screen.control',
+            control('req-ctrl-0000000007', 'open_app',
+                packageName: 'com.example.gone')),
+      );
+      expect(missing, 'screen.app_missing');
+    });
+
+    test('apps.list returns launchable apps and accessibility', () async {
+      final apps = _FakeAppsAdapter();
+      final h = _Harness();
+      await h.init(appsAdapter: apps);
+      final (_, listed, error) = await h.reply(
+        await h.call('apps.list', {}),
+      );
+      expect(error, '');
+      expect(listed['accessibility'], 'true');
+      expect(listed['sampled_at'], '${_Harness.nowMs}');
+      final items = listed['items'] as List;
+      expect(items.length, 2);
+      expect(items[0]['package'], 'com.example.a');
+      expect(items[0]['label'], 'A');
+      apps.a11y = false;
+      final (_, listed2, _) = await h.reply(
+        await h.call('apps.list', {}),
+      );
+      expect(listed2['accessibility'], 'false');
     });
 
     test('recoverInterrupted marks running sessions interrupted', () async {
