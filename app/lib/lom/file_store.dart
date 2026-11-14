@@ -64,6 +64,15 @@ class LomFileStore {
   Future<bool> isComplete(String id, String sender) async =>
       (await lookup(id, sender))?.status == 'complete';
 
+  /// The full bytes of a finished transfer, or null when it is missing
+  /// or not complete. Used by `skills.install` to read the uploaded ZIP
+  /// (the transfer was already SHA-256-verified by `file.finish`).
+  Future<List<int>?> completeBytes(String id, String sender) async {
+    final record = await lookup(id, sender);
+    if (record == null || record.status != 'complete') return null;
+    return storage.readAt(_storageKey(sender, id), 0, record.size);
+  }
+
   /// Registers already-known bytes (e.g. a session attachment for
   /// `chat.file` / `chat.image`) as a finished transfer. The id is
   /// derived from the content, so registering the same bytes twice

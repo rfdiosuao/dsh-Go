@@ -24,6 +24,7 @@ import 'file_store.dart';
 import 'phase4_store.dart';
 import 'rpc_errors.dart';
 import 'schedule_write.dart';
+import 'skills.dart';
 
 /// Optional-method handlers. Constructed once per relay session in
 /// `lom_relay_service.dart` and passed to [LomRpcDispatcher].
@@ -34,6 +35,7 @@ class LomOptionalMethods {
     required this.deviceNames,
     this.files,
     this.scheduleWrite,
+    this.skills,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -50,6 +52,9 @@ class LomOptionalMethods {
   /// `schedule.toggle` is never listed: there is no toggle API to back
   /// it (see `schedule_write.dart`).
   final LomScheduleWriteHandler? scheduleWrite;
+
+  /// Skill registry, or null when it is not wired.
+  final LomSkillRegistry? skills;
 
   final DateTime Function() _now;
 
@@ -77,6 +82,13 @@ class LomOptionalMethods {
           'schedule.save',
           'schedule.delete',
           'schedule.run',
+        ],
+        if (skills != null) ...[
+          'skills.list',
+          'skills.read',
+          'skills.install',
+          'skills.toggle',
+          'skills.delete',
         ],
       };
 
@@ -119,6 +131,14 @@ class LomOptionalMethods {
         final writer = scheduleWrite;
         if (writer == null) throw LomRpcException('remote.method_unknown');
         return writer.handle(method, payload, sender);
+      case 'skills.list':
+      case 'skills.read':
+      case 'skills.install':
+      case 'skills.toggle':
+      case 'skills.delete':
+        final registry = skills;
+        if (registry == null) throw LomRpcException('remote.method_unknown');
+        return registry.handle(method, payload, sender);
       default:
         throw LomRpcException('remote.method_unknown');
     }
