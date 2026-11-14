@@ -31,5 +31,6 @@ export 'apps.dart';
 export 'schedule_mapping.dart';
 export 'schedule_write.dart';
 export 'screen.dart';
+export 'screen_types.dart';
 export 'skill_zip.dart';
 export 'skills.dart';
